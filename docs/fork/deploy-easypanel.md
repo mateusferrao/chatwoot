@@ -1,65 +1,97 @@
-# Deploy no Easypanel (blueprint da fase 2)
+# Deploy no Easypanel
 
-> **Status: planejado, ainda não executado.** Este documento registra as decisões da fase 1 para o deploy ser mecânico. Revise antes de executar: valores de infraestrutura mudam.
+> **Status: em produção desde 24/11/2026** em `https://crm.automato.pro`. Este documento descreve a instalação **como ela está** e como reproduzi-la ou atualizá-la.
 
 ## Arquitetura
 
-Projeto novo no Easypanel: **`chatwoot`** (isolado dos outros sistemas).
+O plano do Easypanel permite só 3 projetos, então o Chatwoot roda **dentro do projeto `sites`**, com serviços prefixados `chatwoot-`. Banco e Redis são dedicados; só a rede interna é compartilhada com os outros serviços do projeto.
 
-| Serviço | Tipo | Imagem | Porta interna | Exposição |
+| Serviço (Easypanel) | Host interno | Imagem | Porta | Exposição |
 |---|---|---|---|---|
-| `postgres` | Postgres | `pgvector/pgvector:pg16` | 5432 | **nenhuma** (só rede interna) |
-| `redis` | Redis | `redis:7-alpine` (com senha) | 6379 | **nenhuma** |
-| `rails` | App (imagem) | `ghcr.io/mateusferrao/chatwoot:<tag>` | 3000 | domínio `crm.automato.pro` (HTTPS) |
-| `sidekiq` | App (imagem) | mesma imagem e tag do `rails` | — | nenhuma |
-
-Externos:
-- **AWS S3**: bucket exclusivo para anexos.
-- **Amazon SES** (sa-east-1): e-mail de saída via SMTP, domínio `msg.automato.pro` já verificado.
+| `chatwoot-postgres` | `sites_chatwoot-postgres` | `pgvector/pgvector:pg16` | 5432 | **nenhuma** |
+| `chatwoot-redis` | `sites_chatwoot-redis` | `redis:7-alpine` (com senha) | 6379 | **nenhuma** |
+| `chatwoot-rails` | `sites_chatwoot-rails` | `ghcr.io/mateusferrao/chatwoot:<tag>` | 3000 | `crm.automato.pro` (HTTPS) |
+| `chatwoot-sidekiq` | — | mesma imagem e tag do rails | — | nenhuma |
 
 ```
 Cliente (WhatsApp) ─► Meta ─► https://crm.automato.pro/webhooks/whatsapp/<numero>
                                      │
                          Traefik do Easypanel (TLS)
                                      │
-                               chatwoot_rails ──► chatwoot_postgres (pgvector)
-                                     │       └──► chatwoot_redis ◄── chatwoot_sidekiq
-                                     └──► S3 (anexos)       SES SMTP (e-mails) ◄──┘
+                        chatwoot-rails ──► chatwoot-postgres (pgvector)
+                              │      └──► chatwoot-redis ◄── chatwoot-sidekiq
+                              └── /app/storage (volume) ◄────── (mesma pasta, bind)
 ```
 
-## Pré-requisitos
+Externos (pendentes):
+- **AWS S3**: bucket exclusivo para anexos. Enquanto não existe, os anexos ficam no volume do rails (ver "Anexos" abaixo).
+- **Amazon SES** (sa-east-1): e-mail de saída via SMTP, domínio `msg.automato.pro` já verificado.
 
-1. **Imagem CE publicada:** GitHub → Actions → **Fork - imagem CE** → *Run workflow* na `main`. A imagem sai como `ghcr.io/mateusferrao/chatwoot:<versão>-ce-<sha>` e `:latest-ce`. **Use sempre a tag com sha no Easypanel**, nunca `latest-ce`: deploy reprodutível e rollback fácil.
-2. **Acesso do Easypanel ao GHCR:** o pacote do GHCR nasce **privado**. Escolha uma opção:
-   - **(a)** GitHub → Packages → `chatwoot` → Package settings → *Change visibility* → **Public**. O código é MIT e o repo já é público, então não há segredo na imagem.
-   - **(b)** Manter privado e cadastrar no Easypanel um registry `ghcr.io` com usuário `mateusferrao` e um token (PAT clássico) com escopo **apenas** `read:packages`.
-3. **Bucket S3** (região `sa-east-1`, mesma do SES; latência menor para o Brasil):
-   - Block Public Access **ligado** (o Chatwoot serve os arquivos por URL assinada).
-   - Usuário IAM **exclusivo** `chatwoot-storage` com a política abaixo (troque o nome do bucket).
-4. **Credencial SMTP do SES exclusiva:** SES (sa-east-1) → *SMTP settings* → **Create SMTP credentials** (cria o usuário IAM `chatwoot-ses-smtp`). Guarde o usuário e a senha SMTP: a senha só aparece uma vez.
-5. **Segredos:** rode `ops/scripts/generate-secrets.sh` e guarde a saída num cofre (1Password, Bitwarden...).
+## Imagem
 
-### Política IAM — S3 (usuário `chatwoot-storage`)
-```json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": ["s3:ListBucket"],
-      "Resource": "arn:aws:s3:::NOME-DO-BUCKET"
-    },
-    {
-      "Effect": "Allow",
-      "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"],
-      "Resource": "arn:aws:s3:::NOME-DO-BUCKET/*"
-    }
-  ]
-}
-```
+- Gerada pelo workflow **Fork - imagem CE** (GitHub → Actions → *Run workflow* na `main`). Sai como `ghcr.io/mateusferrao/chatwoot:<versão>-ce-<sha>` e `:latest-ce`.
+- **Use sempre a tag com sha no Easypanel**, nunca `latest-ce`: deploy reprodutível e rollback fácil.
+- O pacote do GHCR é **público**: herda a visibilidade do repositório. O Easypanel baixa sem credenciais; o código é MIT e não há segredo na imagem.
+- A imagem traz um **`HEALTHCHECK`** ([`ops/docker/healthcheck.sh`](../../ops/docker/healthcheck.sh)), que serve aos dois processos:
+  - **rails:** `GET /api`, com `X-Forwarded-Proto: https` para não cair no redirect do `FORCE_SSL`;
+  - **sidekiq:** porta 7433 do `sidekiq_alive`.
+  - Com ele, o "zero downtime" do Easypanel/Swarm só troca o container quando o novo está saudável. Sem ele, cada deploy deixava o site fora do ar por ~1–2 min.
+  - O `start-period` é de 300 s, porque o boot do rails roda migrations e a task de marca.
+- A imagem **não tem `CMD`**: o comando é definido em cada serviço (abaixo).
 
-### Política IAM — SES SMTP (usuário criado pelo console)
-O console cria com `ses:SendRawEmail` em `*`. Restrinja ao domínio:
+## Configuração dos serviços
+
+### `chatwoot-rails`
+- **Source:** imagem `ghcr.io/mateusferrao/chatwoot:<tag-com-sha>`.
+- **Environment:** [`ops/env/production.env.example`](../../ops/env/production.env.example) preenchido, com `POSTGRES_HOST=sites_chatwoot-postgres` e `REDIS_URL=redis://sites_chatwoot-redis:6379`.
+- **Deploy → Command:**
+  ```
+  sh -c "bundle exec rails db:chatwoot_prepare && bundle exec rails fork:branding:apply && bundle exec rails s -p 3000 -b 0.0.0.0"
+  ```
+  - `db:chatwoot_prepare` carrega o schema na primeira vez e roda as migrations nas seguintes; é idempotente.
+  - `fork:branding:apply` aplica a marca a cada deploy; também é idempotente. Fica no comando porque **o Easypanel não executa comandos avulsos em serviços do tipo App** (não há "run command" pela API; só o console web interativo).
+- **Mounts:** volume `storage` → `/app/storage`. No host fica em `/var/lib/docker/volumes/sites_chatwoot-rails_storage/_data`.
+- **Domains:** `crm.automato.pro` → porta 3000, HTTPS.
+
+### `chatwoot-sidekiq`
+- **Source:** mesma imagem e tag do rails.
+- **Environment:** **idêntico** ao do rails. Ao mudar uma variável, mude nos dois.
+- **Deploy → Command:** `bundle exec sidekiq -C config/sidekiq.yml`
+- **Mounts:** *bind* `/var/lib/docker/volumes/sites_chatwoot-rails_storage/_data` → `/app/storage`. É a **mesma pasta** do rails: as mídias do WhatsApp são baixadas pelo sidekiq e servidas pelo rails.
+
+### Marca (logos)
+Na edição CE **não existe tela** para nome e logos (o formulário "custom branding" do Super Admin é Enterprise). A task do fork lê:
+
+| Variável | Padrão | Efeito |
+|---|---|---|
+| `BRAND_NAME` | `Automato` | `INSTALLATION_NAME` e `BRAND_NAME` (dashboard, e-mails, widget) |
+| `BRAND_URL` | `https://automato.pro` | `BRAND_URL` e `WIDGET_BRAND_URL` |
+| `LOGO_URL`, `LOGO_DARK_URL`, `LOGO_THUMBNAIL_URL` | (não altera) | Logos; o thumbnail (favicon) deve ter 512×512 px |
+
+Para trocar a marca, ajuste essas variáveis no env do `chatwoot-rails` e faça deploy. Os logos precisam de URL pública.
+
+## Primeiro acesso (feito em 24/11/2026)
+
+O onboarding da instalação fica **aberto para quem chegar primeiro** até alguém concluir. Em uma instalação nova:
+- Faça o onboarding imediatamente.
+- **Desmarque** a newsletter, que envia seus dados de contato à Chatwoot Inc.
+- Em "Detalhes da empresa", confira **Idioma = Português Brasileiro (pt-BR)** (sugerido pelo idioma do navegador) e **Fuso = America/Sao_Paulo**.
+
+## Idioma
+
+- A conta criada no onboarding herda `DEFAULT_LOCALE=pt_BR`.
+- ⚠️ Ao criar contas **pelo Super Admin** (Accounts → New), selecione **pt_BR** no campo *Locale*: esse formulário não aplica o `DEFAULT_LOCALE` e o padrão do banco é `en`.
+- Limitações do upstream: o **Super Admin só existe em inglês**, e o **rodapé dos e-mails** é fixo em inglês ("This email was sent by Automato").
+
+## Pendências
+
+### E-mail (SES SMTP)
+1. SES (sa-east-1) → *SMTP settings* → **Create SMTP credentials**. Isso cria um usuário IAM; restrinja a política dele com o JSON abaixo.
+2. Nos **dois** serviços, preencha:
+   - `SMTP_ADDRESS=email-smtp.sa-east-1.amazonaws.com`
+   - `SMTP_USERNAME` e `SMTP_PASSWORD`
+3. Deploy dos dois serviços e teste convidando um agente com um e-mail seu.
+
 ```json
 {
   "Version": "2012-10-17",
@@ -73,57 +105,29 @@ O console cria com `ses:SendRawEmail` em `*`. Restrinja ao domínio:
 }
 ```
 
-## Passo a passo
-
-1. **Projeto** `chatwoot` no Easypanel.
-2. **Postgres:**
-   - Crie o serviço `postgres` (database `chatwoot`, usuário `postgres`, senha gerada).
-   - Em *Advanced*, troque a imagem para **`pgvector/pgvector:pg16`**. Sem pgvector o schema não carrega: `enable_extension "vector"`.
-   - **Não** preencha *Exposed Port*.
-3. **Redis:** crie o serviço `redis` com a senha gerada. Sem *Exposed Port*.
-4. **App `rails`:**
-   - Source: *Docker Image* → `ghcr.io/mateusferrao/chatwoot:<tag-com-sha>`.
-   - Environment: conteúdo de [`ops/env/production.env.example`](../../ops/env/production.env.example) preenchido.
-   - Deploy → Command:
-     ```
-     sh -c "bundle exec rails db:chatwoot_prepare && bundle exec rails s -p 3000 -b 0.0.0.0"
-     ```
-     O `db:chatwoot_prepare` carrega o schema na primeira vez e roda as migrations nas seguintes; é idempotente. (Geolocalização por IP é opcional: exige `IP_LOOKUP_API_KEY` da MaxMind e `bundle exec rails ip_lookup:setup` antes do servidor.)
-   - Domains: `crm.automato.pro` → porta **3000**, HTTPS ligado.
-   - Antes, **remova o domínio antigo** `crm.automato.pro` / `www.crm.automato.pro` que ainda aponta para `sites/crm-steticos-front`.
-5. **App `sidekiq`:**
-   - Mesma imagem e tag, mesmo Environment.
-   - Command:
-     ```
-     bundle exec sidekiq -C config/sidekiq.yml
-     ```
-   - Sem domínio.
-6. **DNS:** confirme que `crm.automato.pro` aponta para o IP da VPS. O registro já existe.
-7. **Primeiro acesso:** abra `https://crm.automato.pro`. O Chatwoot mostra o **onboarding da instalação** (já em português), onde você cria o **Super Admin** e a primeira conta.
-   - Faça isso **imediatamente** após o deploy: até lá a tela fica aberta para quem chegar primeiro.
-   - **Desmarque** "Assine as notas de versão e newsletters…", que envia seus dados de contato à Chatwoot Inc.
-   - Na tela seguinte ("Detalhes da empresa"), confira:
-     - **Idioma = Português Brasileiro (pt-BR)**. O campo vem preenchido pelo idioma do *navegador*; um navegador em inglês sugere English.
-     - **Fuso horário = America/Sao_Paulo**.
-8. **Marca:** na edição CE **não existe tela** para nome/logos (o formulário "custom branding" do Super Admin é Enterprise). Use a task do fork, no console do serviço `rails`:
+### Anexos → S3
+1. Crie o bucket (sa-east-1, Block Public Access **ligado**, Versioning ligado) e o usuário IAM `chatwoot-storage`:
+   ```json
+   {
+     "Version": "2012-10-17",
+     "Statement": [
+       { "Effect": "Allow", "Action": ["s3:ListBucket"], "Resource": "arn:aws:s3:::NOME-DO-BUCKET" },
+       { "Effect": "Allow", "Action": ["s3:GetObject", "s3:PutObject", "s3:DeleteObject"], "Resource": "arn:aws:s3:::NOME-DO-BUCKET/*" }
+     ]
+   }
    ```
-   BRAND_NAME="Automato" BRAND_URL="https://automato.pro" \
-   LOGO_URL="https://.../logo.svg" LOGO_DARK_URL="https://.../logo-dark.svg" LOGO_THUMBNAIL_URL="https://.../icon-512.png" \
-   bundle exec rails fork:branding:apply
+2. Nos dois serviços, preencha `S3_BUCKET_NAME`, `AWS_ACCESS_KEY_ID` e `AWS_SECRET_ACCESS_KEY`, **mantendo** `ACTIVE_STORAGE_SERVICE=local` por enquanto.
+3. Migre os arquivos existentes. No console do `chatwoot-rails`:
    ```
-   - Grava nome, URL e logos (os logos são opcionais; os não informados ficam como estão).
-   - Remove o "Powered by" do widget e da central de ajuda, nas contas atuais e nas futuras.
-   - Pode rodar de novo quando quiser trocar algo (é idempotente).
-   - Os logos precisam de uma URL pública (ex.: hospedados no site ou num bucket público de assets). O favicon (`LOGO_THUMBNAIL`) deve ter 512×512 px.
-9. **Idioma:**
-   - A conta criada no onboarding herda `DEFAULT_LOCALE=pt_BR`.
-   - ⚠️ Ao criar contas **pelo Super Admin** (Accounts → New), selecione **pt_BR** no campo *Locale*: esse formulário não aplica o `DEFAULT_LOCALE` e o padrão do banco é `en`. Contas existentes: Configurações da conta → Idioma.
-   - Cada agente pode escolher o próprio idioma no perfil.
-   - Limitações do upstream: o **Super Admin só existe em inglês**, e o **rodapé dos e-mails** é fixo em inglês ("This email was sent by Automato").
-10. **WhatsApp:** siga [`whatsapp.md`](whatsapp.md).
-11. **Teste de e-mail:** convide um agente com um e-mail seu e confira se o convite chega (remetente `no-reply@msg.automato.pro`).
+   FROM=local TO=amazon bundle exec rails storage:migrate
+   ```
+4. Troque para `ACTIVE_STORAGE_SERVICE=amazon` nos dois serviços e faça deploy. Depois de validar, o volume `storage` pode ser esvaziado.
 
-## Dimensionamento (VPS atual: 2 vCPU / ~8 GB, compartilhada)
+### Backups
+- **Postgres:** Easypanel → `chatwoot-postgres` → *Backups* → diário, com destino **externo** (nunca o bucket de anexos), retenção ≥ 14 dias. Teste uma restauração.
+- **Segredos:** `SECRET_KEY_BASE` e `ACTIVE_RECORD_ENCRYPTION_*` precisam estar num cofre. Sem eles, um backup do banco não é restaurável por completo, e as chaves de criptografia **nunca** podem mudar.
+
+## Dimensionamento (VPS: 2 vCPU / ~8 GB, compartilhada)
 
 | Serviço | RAM estimada |
 |---|---|
@@ -131,21 +135,13 @@ O console cria com `ses:SendRawEmail` em `*`. Restrinja ao domínio:
 | sidekiq (concorrência 5) | 400–700 MB |
 | postgres | 200–400 MB |
 | redis | 30–100 MB |
-| **Total** | **~1,2 a 2 GB** |
 
-- Medição de 24/11/2026: ~4,1 GB livres e ~39 GB de disco livres.
-- Configure **limites de memória** nos serviços (Easypanel → Resources) para um vazamento não derrubar os outros sistemas: rails 1 GB, sidekiq 1 GB.
-- Sinais de que precisa de VPS maior: fila do Sidekiq acumulando (Super Admin → Sidekiq), respostas lentas no painel, swap em uso.
-
-## Backups
-
-- **Postgres:** Easypanel → serviço `postgres` → *Backups* → diário, com destino **externo** (S3 de backups, nunca o mesmo bucket de anexos), retenção ≥ 14 dias. Teste uma restauração antes de colocar em produção.
-- **Anexos:** já ficam no S3. Ative o *Versioning* do bucket para se proteger de exclusão acidental.
-- **Segredos:** as chaves `ACTIVE_RECORD_ENCRYPTION_*` e o `SECRET_KEY_BASE` precisam estar no cofre. Sem eles, um backup do banco não é restaurável por completo.
+Sinais de que precisa de VPS maior: fila do Sidekiq acumulando (Super Admin → Sidekiq), painel lento, swap em uso.
 
 ## Atualizações
 
-1. `ops/scripts/sync-upstream.sh <tag>` → PR → CI verde → merge.
+1. `ops/scripts/sync-upstream.sh <tag>` → PR → CI verde → merge ([`atualizar-upstream.md`](atualizar-upstream.md)).
 2. Actions → **Fork - imagem CE** → *Run workflow* na `main`.
-3. Easypanel: troque a tag da imagem no `rails` **e** no `sidekiq` → Deploy. O `db:chatwoot_prepare` aplica as migrations.
-4. Rollback: volte a tag anterior. Se a release tinha migrations destrutivas, restaure o backup; por isso, sempre faça backup antes de atualizar.
+3. **Backup do Postgres** antes de atualizar.
+4. Easypanel: troque a tag da imagem no `chatwoot-rails` **e** no `chatwoot-sidekiq` → Deploy. O `db:chatwoot_prepare` aplica as migrations.
+5. Rollback: volte a tag anterior. Se a release tinha migrations destrutivas, restaure o backup.

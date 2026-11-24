@@ -13,7 +13,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | Edição | **Community (CE)**, 100% MIT. Sem código Enterprise em produção |
 | Idioma | Português do Brasil (`DEFAULT_LOCALE=pt_BR`) |
 | Canal ativo | **WhatsApp oficial** (Cloud API da Meta) |
-| Hospedagem | Easypanel (fase 2: [`docs/fork/deploy-easypanel.md`](docs/fork/deploy-easypanel.md)) |
+| Hospedagem | Easypanel, projeto `sites`, em `https://crm.automato.pro` ([`docs/fork/deploy-easypanel.md`](docs/fork/deploy-easypanel.md)) |
 | Imagem Docker | `ghcr.io/mateusferrao/chatwoot` (gerada pelo workflow **Fork - imagem CE**) |
 
 ## Regras do fork
@@ -46,7 +46,7 @@ Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da
 |---|---|
 | [`docs/fork/edicao-ce.md`](docs/fork/edicao-ce.md) | O que a edição CE não tem, o que é permitido fazer e as alternativas |
 | [`docs/fork/whatsapp.md`](docs/fork/whatsapp.md) | WhatsApp oficial: setup manual e Embedded Signup |
-| [`docs/fork/deploy-easypanel.md`](docs/fork/deploy-easypanel.md) | Blueprint do deploy no Easypanel (fase 2) |
+| [`docs/fork/deploy-easypanel.md`](docs/fork/deploy-easypanel.md) | Deploy em produção no Easypanel: serviços, healthcheck, pendências (SMTP, S3, backups) |
 | [`docs/fork/atualizar-upstream.md`](docs/fork/atualizar-upstream.md) | Como trazer novas versões do Chatwoot |
 | [`docs/fork/canais-futuros.md`](docs/fork/canais-futuros.md) | Instagram/Facebook, e-mail e widget (planejados, não ativos) |
 
