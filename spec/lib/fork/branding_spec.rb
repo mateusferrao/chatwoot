@@ -20,10 +20,28 @@ RSpec.describe Fork::Branding do
     expect(config_value('WIDGET_BRAND_URL')).to eq('https://automato.pro')
   end
 
-  it 'keeps the configs editable in super admin' do
+  it 'preserves the locked attribute defined by the upstream configs' do
+    locked_before = InstallationConfig.where(name: %w[INSTALLATION_NAME BRAND_NAME BRAND_URL WIDGET_BRAND_URL]).pluck(:name, :locked).to_h
+
     apply_branding
 
-    expect(InstallationConfig.editable.pluck(:name)).to include('INSTALLATION_NAME', 'BRAND_NAME', 'BRAND_URL', 'WIDGET_BRAND_URL')
+    expect(InstallationConfig.where(name: locked_before.keys).pluck(:name, :locked).to_h).to eq(locked_before)
+  end
+
+  it 'keeps the default logos when none are given' do
+    expect { apply_branding }.not_to(change { config_value('LOGO') })
+  end
+
+  it 'applies the given logos and ignores blank ones' do
+    described_class.new(
+      name: 'Automato',
+      url: 'https://automato.pro',
+      logos: { logo: 'https://automato.pro/logo.svg', logo_dark: '', logo_thumbnail: 'https://automato.pro/icon.png' }
+    ).apply!
+
+    expect(config_value('LOGO')).to eq('https://automato.pro/logo.svg')
+    expect(config_value('LOGO_THUMBNAIL')).to eq('https://automato.pro/icon.png')
+    expect(config_value('LOGO_DARK')).to eq('/brand-assets/logo_dark.svg')
   end
 
   it 'disables the "Powered by" branding on existing accounts' do
@@ -44,9 +62,8 @@ RSpec.describe Fork::Branding do
   end
 
   it 'is idempotent' do
-    apply_branding
+    2.times { described_class.new(name: 'Automato', url: 'https://automato.pro').apply! }
 
-    expect { apply_branding }.not_to raise_error
     expect(config_value('BRAND_NAME')).to eq('Automato')
     expect(account.reload.feature_enabled?('disable_branding')).to be(true)
   end
