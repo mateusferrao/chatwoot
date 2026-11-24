@@ -99,7 +99,12 @@ O console cria com `ses:SendRawEmail` em `*`. Restrinja ao domínio:
      ```
    - Sem domínio.
 6. **DNS:** confirme que `crm.automato.pro` aponta para o IP da VPS. O registro já existe.
-7. **Primeiro acesso:** abra `https://crm.automato.pro`. O Chatwoot mostra o **onboarding da instalação**, onde você cria o **Super Admin** e a primeira conta. Faça isso imediatamente após o deploy, porque até lá a tela fica aberta para quem chegar primeiro.
+7. **Primeiro acesso:** abra `https://crm.automato.pro`. O Chatwoot mostra o **onboarding da instalação** (já em português), onde você cria o **Super Admin** e a primeira conta.
+   - Faça isso **imediatamente** após o deploy: até lá a tela fica aberta para quem chegar primeiro.
+   - **Desmarque** "Assine as notas de versão e newsletters…", que envia seus dados de contato à Chatwoot Inc.
+   - Na tela seguinte ("Detalhes da empresa"), confira:
+     - **Idioma = Português Brasileiro (pt-BR)**. O campo vem preenchido pelo idioma do *navegador*; um navegador em inglês sugere English.
+     - **Fuso horário = America/Sao_Paulo**.
 8. **Marca:** na edição CE **não existe tela** para nome/logos (o formulário "custom branding" do Super Admin é Enterprise). Use a task do fork, no console do serviço `rails`:
    ```
    BRAND_NAME="Automato" BRAND_URL="https://automato.pro" \
@@ -110,7 +115,11 @@ O console cria com `ses:SendRawEmail` em `*`. Restrinja ao domínio:
    - Remove o "Powered by" do widget e da central de ajuda, nas contas atuais e nas futuras.
    - Pode rodar de novo quando quiser trocar algo (é idempotente).
    - Os logos precisam de uma URL pública (ex.: hospedados no site ou num bucket público de assets). O favicon (`LOGO_THUMBNAIL`) deve ter 512×512 px.
-9. **Idioma:** confira em Configurações da conta → Idioma do site = **Português (Brasil)**. Cada agente também pode escolher o idioma no perfil.
+9. **Idioma:**
+   - A conta criada no onboarding herda `DEFAULT_LOCALE=pt_BR`.
+   - ⚠️ Ao criar contas **pelo Super Admin** (Accounts → New), selecione **pt_BR** no campo *Locale*: esse formulário não aplica o `DEFAULT_LOCALE` e o padrão do banco é `en`. Contas existentes: Configurações da conta → Idioma.
+   - Cada agente pode escolher o próprio idioma no perfil.
+   - Limitações do upstream: o **Super Admin só existe em inglês**, e o **rodapé dos e-mails** é fixo em inglês ("This email was sent by Automato").
 10. **WhatsApp:** siga [`whatsapp.md`](whatsapp.md).
 11. **Teste de e-mail:** convide um agente com um e-mail seu e confira se o convite chega (remetente `no-reply@msg.automato.pro`).
 
