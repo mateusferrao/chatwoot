@@ -39,12 +39,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Preparar edição CE (remove enterprise/)
+      - name: Preparar edição CE (remove enterprise/) e healthcheck
         env:
           CI: 'true'
         run: |
           ops/scripts/strip-enterprise.sh
           echo -en '\nENV CW_EDITION="ce"' >> docker/Dockerfile
+          # Sem healthcheck, o "zero downtime" do Easypanel/Swarm troca o container
+          # antes do Rails terminar de subir (~1-2 min fora do ar a cada deploy).
+          # start-period cobre db:chatwoot_prepare + fork:branding:apply no boot.
+          echo -en '\nHEALTHCHECK --interval=30s --timeout=10s --start-period=300s --retries=3 CMD ["sh", "/app/ops/docker/healthcheck.sh"]\n' >> docker/Dockerfile
+          tail -n 3 docker/Dockerfile
 
       - name: Definir nome e tags da imagem
         id: meta
