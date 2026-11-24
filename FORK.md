@@ -20,7 +20,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 
 1. **Repositório público: nunca commite segredos.** Nada de `.env` preenchido, tokens, chaves ou senhas. O template sem valores está em [`ops/env/production.env.example`](ops/env/production.env.example).
 2. **Não edite `enterprise/`.** A pasta continua versionada só para os merges com o upstream ficarem limpos. A licença dela é proprietária, e ela é removida no build da imagem CE ([`ops/scripts/strip-enterprise.sh`](ops/scripts/strip-enterprise.sh)). Detalhes em [`docs/fork/edicao-ce.md`](docs/fork/edicao-ce.md).
-3. **Mínimo de alterações em arquivos do upstream.** Customizações vão em arquivos novos (`ops/`, `docs/fork/`, `lib/fork/`, `lib/tasks/fork_*.rake`). Se for inevitável alterar um arquivo do upstream, registre em [`ops/upstream-sync/ours-paths.txt`](ops/upstream-sync/ours-paths.txt). Se remover, registre em [`ops/upstream-sync/removed-paths.txt`](ops/upstream-sync/removed-paths.txt).
+3. **Mínimo de alterações em arquivos do upstream.** Customizações vão em arquivos novos (`ops/`, `docs/fork/`, `lib/fork/`, `lib/tasks/fork_*.rake`). Se for inevitável alterar um arquivo do upstream, registre em [`ops/upstream-sync/ours-paths.txt`](ops/upstream-sync/ours-paths.txt). Se remover, registre em [`ops/upstream-sync/removed-paths.txt`](ops/upstream-sync/removed-paths.txt). Ajuste temporário que o upstream deve absorver (ex.: lockfile): [`ops/upstream-sync/theirs-paths.txt`](ops/upstream-sync/theirs-paths.txt).
 4. **Fluxo de branches:**
    - `main` é o que vai para produção. Só recebe código por Pull Request.
    - Features e ajustes: branch própria → PR para `main`.
@@ -34,6 +34,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | Removidos 8 workflows (`deploy_check`, `ghsa-linear-sync`, `lock`, `nightly_installer`, `publish_codespace_image`, `publish_ee_docker`, `publish_foss_docker`, `stale`), `FUNDING.yml` e `.dependabot/` | Eram da operação da Chatwoot Inc. (DockerHub, Linear, review apps Heroku) e aqui falhariam ou agiriam sobre nossas issues |
 | `CODEOWNERS` → `@mateusferrao` | O original apontava para funcionários da Chatwoot Inc. |
 | Workflow **Fork - imagem CE** | Gera a imagem CE no GitHub Actions, já que a VPS não comporta o build |
+| `Gemfile.lock`: `puma` 7.2.3 e `rack-protection` 4.2.2 | Correções de segurança apontadas pelo `bundle-audit` e publicadas depois da v4.20.1. O `develop` do upstream já tem as mesmas versões; registrado em `ops/upstream-sync/theirs-paths.txt` |
 | `rails fork:branding:apply` ([`lib/fork/branding.rb`](lib/fork/branding.rb)) | Aplica nome, URL e logos da Automato (na CE não há tela para isso) e remove o "Powered by" do widget e da central de ajuda |
 | `ops/` e `docs/fork/` | Ferramentas e documentação próprias do fork |
 

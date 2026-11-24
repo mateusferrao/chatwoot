@@ -21,7 +21,8 @@ O script:
 1. Busca a tag no upstream e cria a branch `sync/upstream-v4.21.0`.
 2. Faz o merge. Conflitos previstos se resolvem sozinhos:
    - arquivos que removemos (`ops/upstream-sync/removed-paths.txt`) continuam removidos;
-   - arquivos que customizamos (`ops/upstream-sync/ours-paths.txt`) mantêm a versão do fork, e o script avisa para você revisar o que mudou no upstream.
+   - arquivos que customizamos (`ops/upstream-sync/ours-paths.txt`) mantêm a versão do fork, e o script avisa para você revisar o que mudou no upstream;
+   - arquivos com ajuste **temporário** (`ops/upstream-sync/theirs-paths.txt`, ex.: `Gemfile.lock` com correções de segurança antecipadas) ficam com a versão do upstream. Depois rode `bundle exec bundle-audit check`; se o upstream já incorporou a correção, remova o item da lista.
 3. Atualiza `ops/UPSTREAM_VERSION` e cria o commit.
 4. Imprime um **checklist**: migrations novas, mudanças no `.env.example`, workflows novos ou alterados, versões de Ruby/Node.
 
