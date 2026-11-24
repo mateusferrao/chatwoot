@@ -1,0 +1,4 @@
+# Arquivos do upstream que ALTERAMOS neste fork e cuja versão nossa deve
+# prevalecer em conflitos de merge com o upstream (o script resolve com "--ours").
+# Revise o diff do upstream nesses arquivos mesmo assim: o script avisa.
+.github/CODEOWNERS

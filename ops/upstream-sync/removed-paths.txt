@@ -1,0 +1,18 @@
+# Caminhos do upstream (chatwoot/chatwoot) que REMOVEMOS de propósito neste fork.
+# O script ops/scripts/sync-upstream.sh usa esta lista para resolver
+# automaticamente conflitos "modified upstream / deleted here" (mantém removido).
+# Um caminho por linha. Diretórios terminam com "/". Linhas com "#" são comentários.
+
+# Workflows da Chatwoot Inc. que não fazem sentido (ou falham) neste repo:
+.github/workflows/deploy_check.yml
+.github/workflows/ghsa-linear-sync.yml
+.github/workflows/lock.yml
+.github/workflows/nightly_installer.yml
+.github/workflows/publish_codespace_image.yml
+.github/workflows/publish_ee_docker.yml
+.github/workflows/publish_foss_docker.yml
+.github/workflows/stale.yml
+
+# Metadados da Chatwoot Inc.:
+.github/FUNDING.yml
+.dependabot/
