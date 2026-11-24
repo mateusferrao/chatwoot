@@ -25,6 +25,7 @@ Baseado em `enterprise/config/premium_features.yml` e no conteúdo de `enterpris
 | Campanhas | Analytics de campanha e rastreio/retomada por destinatário nos disparos de WhatsApp (o disparo em si continua no núcleo) |
 | CRM | Enriquecimento automático de empresas, notas nas avaliações CSAT |
 | Segurança | SSO via SAML, verificação de dispositivo |
+| Administração | Tela de marca personalizada no Super Admin (nome/logos). Contornado pela task do fork: ver abaixo |
 | Busca | Busca avançada (OpenSearch/Elasticsearch) |
 
 ## O que a CE TEM (núcleo MIT)
@@ -46,4 +47,4 @@ Atalhos legítimos para as lacunas mais importantes:
   - Um **Agent Bot** apontando para um fluxo no **n8n** (que já existe na operação) com o LLM de preferência.
 - **SLA e alertas:** automações do Chatwoot + **webhooks** para o n8n (ex.: alertar quando uma conversa passar X minutos sem resposta).
 - **Auditoria:** webhooks de eventos de conversa e mensagem gravados num banco ou planilha via n8n.
-- **Marca:** nome, logo e URL editáveis no Super Admin; "Powered by" removido via `rails fork:branding:apply`. Isso é código MIT (flag `disable_branding`), não Enterprise.
+- **Marca:** a tela de marca do Super Admin é Enterprise, mas as configurações (nome, URL, logos) e a flag `disable_branding` são código MIT. O fork aplica tudo com `rails fork:branding:apply` ([`lib/fork/branding.rb`](../../lib/fork/branding.rb)), incluindo a remoção do "Powered by".

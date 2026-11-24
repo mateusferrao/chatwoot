@@ -100,11 +100,16 @@ O console cria com `ses:SendRawEmail` em `*`. Restrinja ao domínio:
    - Sem domínio.
 6. **DNS:** confirme que `crm.automato.pro` aponta para o IP da VPS. O registro já existe.
 7. **Primeiro acesso:** abra `https://crm.automato.pro`. O Chatwoot mostra o **onboarding da instalação**, onde você cria o **Super Admin** e a primeira conta. Faça isso imediatamente após o deploy, porque até lá a tela fica aberta para quem chegar primeiro.
-8. **Marca:**
+8. **Marca:** na edição CE **não existe tela** para nome/logos (o formulário "custom branding" do Super Admin é Enterprise). Use a task do fork, no console do serviço `rails`:
    ```
-   BRAND_NAME="Automato" BRAND_URL="https://automato.pro" bundle exec rails fork:branding:apply
+   BRAND_NAME="Automato" BRAND_URL="https://automato.pro" \
+   LOGO_URL="https://.../logo.svg" LOGO_DARK_URL="https://.../logo-dark.svg" LOGO_THUMBNAIL_URL="https://.../icon-512.png" \
+   bundle exec rails fork:branding:apply
    ```
-   Rode no console do serviço `rails`. Depois, no Super Admin → Settings, suba os logos (`LOGO`, `LOGO_DARK`, `LOGO_THUMBNAIL`).
+   - Grava nome, URL e logos (os logos são opcionais; os não informados ficam como estão).
+   - Remove o "Powered by" do widget e da central de ajuda, nas contas atuais e nas futuras.
+   - Pode rodar de novo quando quiser trocar algo (é idempotente).
+   - Os logos precisam de uma URL pública (ex.: hospedados no site ou num bucket público de assets). O favicon (`LOGO_THUMBNAIL`) deve ter 512×512 px.
 9. **Idioma:** confira em Configurações da conta → Idioma do site = **Português (Brasil)**. Cada agente também pode escolher o idioma no perfil.
 10. **WhatsApp:** siga [`whatsapp.md`](whatsapp.md).
 11. **Teste de e-mail:** convide um agente com um e-mail seu e confira se o convite chega (remetente `no-reply@msg.automato.pro`).

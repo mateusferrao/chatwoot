@@ -34,7 +34,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | Removidos 8 workflows (`deploy_check`, `ghsa-linear-sync`, `lock`, `nightly_installer`, `publish_codespace_image`, `publish_ee_docker`, `publish_foss_docker`, `stale`), `FUNDING.yml` e `.dependabot/` | Eram da operação da Chatwoot Inc. (DockerHub, Linear, review apps Heroku) e aqui falhariam ou agiriam sobre nossas issues |
 | `CODEOWNERS` → `@mateusferrao` | O original apontava para funcionários da Chatwoot Inc. |
 | Workflow **Fork - imagem CE** | Gera a imagem CE no GitHub Actions, já que a VPS não comporta o build |
-| `rails fork:branding:apply` ([`lib/fork/branding.rb`](lib/fork/branding.rb)) | Aplica a marca Automato e remove o "Powered by" do widget e da central de ajuda |
+| `rails fork:branding:apply` ([`lib/fork/branding.rb`](lib/fork/branding.rb)) | Aplica nome, URL e logos da Automato (na CE não há tela para isso) e remove o "Powered by" do widget e da central de ajuda |
 | `ops/` e `docs/fork/` | Ferramentas e documentação próprias do fork |
 
 Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da edição CE em todo PR.
@@ -58,6 +58,6 @@ ops/scripts/generate-secrets.sh
 # Trazer uma versão nova do Chatwoot
 ops/scripts/sync-upstream.sh v4.21.0
 
-# Aplicar a marca (no container, depois do primeiro deploy)
-BRAND_NAME="Automato" BRAND_URL="https://automato.pro" bundle exec rails fork:branding:apply
+# Aplicar a marca (no container, depois do primeiro deploy; LOGO_* são opcionais)
+BRAND_NAME="Automato" BRAND_URL="https://automato.pro" LOGO_URL="https://.../logo.svg" bundle exec rails fork:branding:apply
 ```
