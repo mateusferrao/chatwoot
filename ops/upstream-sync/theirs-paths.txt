@@ -1,0 +1,8 @@
+# Arquivos do upstream que ajustamos de forma TEMPORÁRIA (ex.: correção de
+# segurança antecipada) e em que a versão do UPSTREAM deve prevalecer num
+# conflito de merge. O script resolve com "--theirs" e pede para revalidar.
+#
+# Gemfile.lock: puma 7.2.3 e rack-protection 4.2.2 antecipados em relação ao
+# upstream v4.20.1 por alertas do bundle-audit (GHSA-4v6q-hvv7-49h9,
+# GHSA-pf75-2v58-7mxg, GHSA-r29j-38x9-qr26, GHSA-vvhm-j6m8-64cw).
+Gemfile.lock

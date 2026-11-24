@@ -11,6 +11,7 @@
 #   4. Resolve sozinho os conflitos previstos:
 #        - caminhos em ops/upstream-sync/removed-paths.txt -> mantém removidos
 #        - caminhos em ops/upstream-sync/ours-paths.txt    -> mantém a versão do fork
+#        - caminhos em ops/upstream-sync/theirs-paths.txt  -> usa a versão do upstream
 #   5. Atualiza ops/UPSTREAM_VERSION e, sem conflitos restantes, cria o commit.
 #   6. Imprime o checklist de revisão (migrations, .env.example, workflows novos...).
 #
@@ -30,6 +31,7 @@ cd "$repo_root"
 
 removed_list="ops/upstream-sync/removed-paths.txt"
 ours_list="ops/upstream-sync/ours-paths.txt"
+theirs_list="ops/upstream-sync/theirs-paths.txt"
 version_file="ops/UPSTREAM_VERSION"
 
 if [[ -n "$(git status --porcelain)" ]]; then
@@ -88,6 +90,10 @@ while IFS= read -r path; do
     git checkout --ours -- "$path"
     git add -- "$path"
     echo "   resolvido (versão do fork):   $path  <- REVISE o que mudou no upstream"
+  elif matches_list "$path" "$theirs_list"; then
+    git checkout --theirs -- "$path"
+    git add -- "$path"
+    echo "   resolvido (versão do upstream): $path  <- revalide (ex.: bundle-audit) e limpe theirs-paths.txt se não precisar mais"
   fi
 done < <(git diff --name-only --diff-filter=U)
 
