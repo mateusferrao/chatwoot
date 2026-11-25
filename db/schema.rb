@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_11_25_182006) do
+ActiveRecord::Schema[7.1].define(version: 2026_11_25_182352) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -336,6 +336,26 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_182006) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["account_id"], name: "index_automato_agents_account_settings_on_account_id", unique: true
+  end
+
+  create_table "automato_agents_team_inboxes", force: :cascade do |t|
+    t.bigint "team_id", null: false
+    t.bigint "inbox_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["inbox_id"], name: "index_automato_agents_team_inboxes_on_inbox_id", unique: true
+    t.index ["team_id"], name: "index_automato_agents_team_inboxes_on_team_id"
+  end
+
+  create_table "automato_agents_teams", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.string "name", null: false
+    t.boolean "enabled", default: false, null: false
+    t.bigint "agent_bot_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id", "name"], name: "index_automato_agents_teams_on_account_id_and_name", unique: true
+    t.index ["agent_bot_id"], name: "index_automato_agents_teams_on_agent_bot_id"
   end
 
   create_table "calls", force: :cascade do |t|
@@ -1896,6 +1916,10 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_182006) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "automato_agents_account_settings", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_team_inboxes", "automato_agents_teams", column: "team_id", on_delete: :cascade
+  add_foreign_key "automato_agents_team_inboxes", "inboxes", on_delete: :cascade
+  add_foreign_key "automato_agents_teams", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_teams", "agent_bots", on_delete: :nullify
   add_foreign_key "campaign_recipients", "accounts", on_delete: :cascade
   add_foreign_key "campaign_recipients", "campaigns", on_delete: :cascade
   add_foreign_key "campaign_recipients", "contacts", on_delete: :cascade
