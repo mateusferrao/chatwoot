@@ -2,3 +2,5 @@
 # prevalecer em conflitos de merge com o upstream (o script resolve com "--ours").
 # Revise o diff do upstream nesses arquivos mesmo assim: o script avisa.
 .github/CODEOWNERS
+# Carrega automato_agents/ (camada de agentes) via eager_load_paths, como o enterprise/
+config/application.rb

@@ -1,0 +1,67 @@
+require 'rails_helper'
+
+RSpec.describe AutomatoAgents::AccountSetting do
+  let(:account) { create(:account) }
+
+  describe '.for' do
+    it 'returns an unsaved, disabled record with the defaults when none exists' do
+      setting = described_class.for(account)
+
+      expect(setting).to be_new_record
+      expect(setting.account_id).to eq(account.id)
+      expect(setting.enabled).to be(false)
+      expect(setting.default_model).to eq('google/gemini-3.1-flash-lite')
+      expect(setting.fallback_message).to eq('Desculpe, tive um problema por aqui. Vou te passar para alguém da nossa equipe.')
+    end
+
+    it 'returns the existing record when present' do
+      existing = create(:automato_agents_account_setting, account: account, enabled: true)
+
+      expect(described_class.for(account)).to eq(existing)
+    end
+  end
+
+  describe 'uniqueness' do
+    it 'rejects a second setting for the same account in validation' do
+      create(:automato_agents_account_setting, account: account)
+
+      duplicate = build(:automato_agents_account_setting, account: account)
+
+      expect(duplicate).not_to be_valid
+    end
+
+    it 'rejects a second setting for the same account in the database' do
+      create(:automato_agents_account_setting, account: account)
+
+      duplicate = build(:automato_agents_account_setting, account: account)
+
+      expect { duplicate.save!(validate: false) }.to raise_error(ActiveRecord::RecordNotUnique)
+    end
+  end
+
+  describe 'account deletion' do
+    it 'removes the setting when the account is destroyed' do
+      create(:automato_agents_account_setting, account: account)
+
+      expect { account.destroy! }.to change(described_class, :count).by(-1)
+    end
+  end
+
+  describe 'AutomatoAgents.enabled_for?' do
+    it 'is false without a setting' do
+      expect(AutomatoAgents.enabled_for?(account)).to be(false)
+    end
+
+    it 'is false when disabled' do
+      create(:automato_agents_account_setting, account: account, enabled: false)
+
+      expect(AutomatoAgents.enabled_for?(account)).to be(false)
+    end
+
+    it 'is true when enabled' do
+      create(:automato_agents_account_setting, account: account, enabled: true)
+
+      expect(AutomatoAgents.enabled_for?(account)).to be(true)
+    end
+  end
+end

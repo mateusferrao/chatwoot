@@ -66,7 +66,7 @@ Cada fatia entrega algo verificável por teste automatizado. Quando indicado, ta
 
 | # | Fatia | Prova |
 |---|---|---|
-| 0.1 | Esqueleto da engine (`engines/automato_agents`, gem por path), `account_settings` + interruptor, registro em `ours-paths.txt` | Boot na CE; specs de modelo |
+| 0.1 | Esqueleto `automato_agents/` (via `eager_load_paths`, sem gem/engine), `account_settings` + interruptor, registro em `ours-paths.txt` | Boot na CE; specs de modelo |
 | 0.2 | `teams` + serviço que cria o AgentBot (sem URL) e liga as inboxes | Conversa nova na inbox ligada nasce `pending` com `ai_assignee` = bot |
 | 0.3 | Ponte de eventos (prepend no `AsyncDispatcher`), filtros, `TurnJob` na fila `automato_agents`, debounce + lock | Rajada de mensagens → 1 turno; privadas, saídas e equipe desligada são ignoradas |
 | 0.4 | Porta de IA (adaptador OpenRouter via `RubyLLM.context`; provedor falso nos testes) + ledger `usage_entries` | Custo gravado por chamada |
@@ -235,7 +235,7 @@ O primeiro nicho é **clínicas com agendamento**. Há um candidato, sem prazo r
 ## 5. Arquitetura
 
 ```
-Chatwoot (Rails)                                   engines/automato_agents (nosso)
+Chatwoot (Rails)                                   automato_agents/ (nosso)
 ───────────────                                    ─────────────────────────────────────────
 WhatsApp → mensagem → AsyncDispatcher ──prepend──► AutomatoAgents::EventListener
                                                       │ (filtra: inbox com equipe ativa, conversa
@@ -268,12 +268,14 @@ knowledge, procedure) · KnowledgeSource (arquivo, faq) · Media (áudio, imagem
 - **Ações no Chatwoot:** usam serviços e modelos internos (`Messages::MessageBuilder`, `Conversations::AssignmentService`, labels, `custom_attributes`, contato).
   - Não passam pela API HTTP, então não esbarram nas restrições do token de bot.
 - **Arquivos upstream tocados** (todos registrados):
-  - `Gemfile`: gem por path, `engines/automato_agents`;
+  - `config/application.rb`: `automato_agents/app/**` e `automato_agents/lib` nos `eager_load_paths`, como o `enterprise/`;
   - `config/routes.rb`: mount;
   - registro de rotas e item no menu de Configurações (`settings.routes.js`, `Sidebar.vue`);
   - registro do painel lateral da conversa;
   - `config/sidekiq.yml`, se a fila precisar ser declarada;
-  - `db/schema.rb`: tabelas do módulo.
+  - `db/schema.rb`: tabelas do módulo (as migrations ficam em `db/migrate`, geradas com `rails g migration`).
+
+> **Decisão (plano da Fase 0):** em vez de engine/gem por path, o código fica no diretório `automato_agents/`, adicionado aos `eager_load_paths`. Gem por path exigiria editar o `Gemfile.lock` (sobrescrito a cada sync) e migrations de engine não entram no `db:chatwoot_prepare`. Ver [`plano-fase-0.md`](plano-fase-0.md).
 - **Risco:** `db/schema.rb` vai conflitar a cada sync.
   - `ops/scripts/sync-upstream.sh` deve passar a regenerar o schema: migrar um banco limpo após o merge.
 
