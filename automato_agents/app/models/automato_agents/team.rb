@@ -36,14 +36,16 @@ class AutomatoAgents::Team < ApplicationRecord
     enabled? && AutomatoAgents.enabled_for?(account)
   end
 
-  # The team answers this conversation now: the team is active and the conversation is
-  # pending on the team's AgentBot. Callers resolve the team from the conversation inbox.
+  # The team answers this conversation now: the team is active, the conversation is pending
+  # on the team's AgentBot and the agent is not paused there (a human replied). Callers
+  # resolve the team from the conversation inbox.
   def serves?(conversation)
     agent_bot_id.present? &&
       conversation.pending? &&
       conversation.ai_assignee_type == 'AgentBot' &&
       conversation.assignee_agent_bot_id == agent_bot_id &&
-      active?
+      active? &&
+      !AutomatoAgents::ConversationState.paused?(conversation)
   end
 
   private

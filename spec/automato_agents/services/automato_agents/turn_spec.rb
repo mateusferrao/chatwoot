@@ -76,6 +76,13 @@ RSpec.describe AutomatoAgents::Turn do
     end
   end
 
+  def human_replies
+    perform_enqueued_jobs(only: EventDispatcherJob) do
+      create(:message, account: account, inbox: inbox, conversation: conversation, message_type: :outgoing,
+                       sender: create(:user, account: account), content: 'Deixa comigo')
+    end
+  end
+
   def human_takes_over
     Conversations::AssignmentService.new(conversation: Conversation.find(conversation.id), assignee_id: create(:user, account: account).id).perform
   end
@@ -92,6 +99,16 @@ RSpec.describe AutomatoAgents::Turn do
         started_at: be_present, finished_at: be_present, cost_usd: BigDecimal('0.00012345')
       )
       expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+
+    it 'marks the reply with the run and the last customer message it answers' do
+      deliver('Vocês abrem no sábado?')
+      run_scheduled_turns
+
+      run = AutomatoAgents::Run.sole
+      expect(bot_replies.sole.reload.content_attributes).to include(
+        'automato_agents' => { 'run_id' => run.id, 'answered_through' => run.trigger_message_id }
+      )
     end
 
     it 'records the llm_call and message_sent steps and the usage entry of the run' do
@@ -193,6 +210,28 @@ RSpec.describe AutomatoAgents::Turn do
       expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
     end
 
+    it 'does not reply when a human replied, pausing the agent' do
+      stub_completion_while_thinking { human_replies }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'AutomatoAgents::Turn::NoLongerServedError')
+      expect(AutomatoAgents::ConversationState.paused?(conversation)).to be(true)
+      expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
+    end
+
+    it 'does not reply when the agent was paused while the conversation is still pending on the bot' do
+      stub_completion_while_thinking { AutomatoAgents::ConversationState.for(conversation).pause!(nil) }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole.error_class).to eq('AutomatoAgents::Turn::NoLongerServedError')
+    end
+
     it 'does not reply when the team was disabled' do
       stub_completion_while_thinking { team.reload.update!(enabled: false) }
 
@@ -285,6 +324,64 @@ RSpec.describe AutomatoAgents::Turn do
       expect(bot_replies.map(&:content)).to eq([agent_reply])
       expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'ActiveRecord::ActiveRecordError')
       expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+
+      with_modified_env(AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key) { described_class.new(conversation).perform }
+
+      expect(bot_replies.count).to eq(1)
+      expect(AutomatoAgents::Run.count).to eq(1)
+      expect(completion_stub).to have_been_requested.once
+    end
+
+    it 'does not answer again when the job is retried after an interruption between sending and finishing the run' do
+      sent = 0
+      allow(AutomatoAgents::Chatwoot::Replier).to receive(:send_text).and_wrap_original do |send_text, **arguments|
+        sent += 1
+        send_text.call(**arguments).tap { raise Interrupt if sent == 1 }
+      end
+      deliver('Oi')
+      token = Redis::Alfred.get(AutomatoAgents::TurnScheduler.token_key(conversation.id))
+
+      expect { run_scheduled_turns }.to raise_error(Interrupt)
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'Interrupt')
+      expect(Redis::Alfred.get(AutomatoAgents::TurnScheduler.token_key(conversation.id))).to eq(token)
+
+      with_modified_env(AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key) { AutomatoAgents::TurnJob.perform_now(conversation.id, token) }
+
+      expect(bot_replies.map(&:content)).to eq([agent_reply])
+      expect(AutomatoAgents::Run.count).to eq(1)
+      expect(completion_stub).to have_been_requested.once
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+
+    it 'keeps the original error in the trace when sending the fallback fails' do
+      stub_request(:post, completions_url).to_return(status: 500, body: '{}', headers: { 'Content-Type' => 'application/json' })
+      allow(AutomatoAgents::Chatwoot::Replier).to receive(:send_text).and_raise(ActiveRecord::ActiveRecordError, 'send failed')
+      deliver('Oi')
+
+      expect { run_scheduled_turns }.to raise_error(ActiveRecord::ActiveRecordError, 'send failed')
+
+      run = AutomatoAgents::Run.sole
+      expect(run).to have_attributes(status: 'failed', error_class: 'RubyLLM::ServerError', finished_at: be_present)
+      expect(run.steps.map { |step| [step.kind, step.name] }).to eq([%w[error RubyLLM::ServerError]])
+      expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil, waiting_since: be_present)
+    end
+
+    it 'does not send the messages answered by the fallback again once the agent is given back' do
+      error_body = { error: { message: 'upstream down' } }.to_json
+      # the first turn fails on both attempts (the provider retries once)
+      stub_request(:post, completions_url)
+        .to_return(status: 500, body: error_body, headers: { 'Content-Type' => 'application/json' }).times(2)
+        .then.to_return(status: 200, body: response_body.to_json, headers: { 'Content-Type' => 'application/json' })
+      deliver('Oi')
+      run_scheduled_turns
+      expect(bot_replies.map(&:content)).to eq([fallback_message])
+
+      AutomatoAgents::Conversations::ResumeService.new(conversation: conversation, user: create(:user, account: account)).perform
+      deliver('Voltei')
+      run_scheduled_turns
+
+      expect(bot_replies.map(&:content)).to eq([fallback_message, agent_reply])
+      expect(a_request(:post, completions_url).with { |req| user_text_sent_to_model(req) == ['Voltei'] }).to have_been_made.once
     end
 
     it 'marks the run as failed and re-raises when the worker is interrupted mid-turn' do

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_11_25_190654) do
+ActiveRecord::Schema[7.1].define(version: 2026_11_25_194817) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -336,6 +336,20 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_190654) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["account_id"], name: "index_automato_agents_account_settings_on_account_id", unique: true
+  end
+
+  create_table "automato_agents_conversation_states", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "team_id", null: false
+    t.bigint "conversation_id", null: false
+    t.string "status", default: "active", null: false
+    t.datetime "paused_at"
+    t.bigint "paused_by_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_automato_agents_conversation_states_on_account_id"
+    t.index ["conversation_id"], name: "index_automato_agents_conversation_states_on_conversation_id", unique: true
+    t.index ["team_id"], name: "index_automato_agents_conversation_states_on_team_id"
   end
 
   create_table "automato_agents_runs", force: :cascade do |t|
@@ -1968,6 +1982,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_190654) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "automato_agents_account_settings", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_conversation_states", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_conversation_states", "automato_agents_teams", column: "team_id", on_delete: :cascade
+  add_foreign_key "automato_agents_conversation_states", "conversations", on_delete: :cascade
   add_foreign_key "automato_agents_runs", "accounts", on_delete: :cascade
   add_foreign_key "automato_agents_runs", "automato_agents_teams", column: "team_id", on_delete: :cascade
   add_foreign_key "automato_agents_runs", "conversations", on_delete: :cascade

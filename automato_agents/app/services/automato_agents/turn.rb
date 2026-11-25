@@ -34,9 +34,9 @@ class AutomatoAgents::Turn
 
   private
 
-  # Incoming messages after the last one an earlier run answered, or after the last reply of
-  # someone other than this team's bot (a human). Messages that arrive while a turn runs are
-  # left for the next turn. Failed and interrupted runs do not count as answers.
+  # Incoming messages after the last one a message of this team's bot answered (its
+  # ReplyMarker, written with the message), or after the last reply of someone other than this
+  # team's bot (a human). Messages that arrive while a turn runs are left for the next turn.
   def unanswered_customer_messages
     messages = @conversation.messages.incoming.where(private: false)
     answered_through = [last_answered_message_id, last_reply_by_others_id].compact.max
@@ -45,7 +45,7 @@ class AutomatoAgents::Turn
   end
 
   def last_answered_message_id
-    AutomatoAgents::Run.where(conversation_id: @conversation.id, status: 'succeeded').maximum(:trigger_message_id)
+    AutomatoAgents::Chatwoot::ReplyMarker.last_answered_message_id(@conversation, @team.agent_bot_id)
   end
 
   def last_reply_by_others_id
@@ -84,7 +84,7 @@ class AutomatoAgents::Turn
     raise BlankTextError, 'the agent returned no text' if result.output.blank?
     raise NoLongerServedError, 'the conversation is no longer served by the team' unless still_served?
 
-    reply = AutomatoAgents::Chatwoot::Replier.send_text(conversation: @conversation, agent_bot: @team.agent_bot, content: result.output)
+    reply = send_text(result.output)
     @reply_sent = true
     @run.add_step!(kind: 'message_sent', name: 'send_text', output: { message_id: reply.id, content: reply.content })
     finish_run('succeeded')
@@ -138,20 +138,32 @@ class AutomatoAgents::Turn
     )
   end
 
-  # The customer is told and handed to humans only while the team still serves the conversation
+  # The run records the error first, so it is kept when sending the fallback fails too. The
+  # customer is told and handed to humans only while the team still serves the conversation
   # and has not answered it yet. The fallback goes first because a bot message clears
   # waiting_since; the handoff sets it again even when sending fails.
   def fail_run(error)
     Rails.logger.error("[AutomatoAgents] turn failed run=#{@run.id} conversation=#{@conversation.id}: #{error.class}")
-    hand_off_with_fallback if !@reply_sent && still_served?
     @run.add_step!(kind: 'error', name: error.class.name, output: { message: error.message })
     finish_run('failed', error)
+    hand_off_with_fallback if !@reply_sent && still_served?
   end
 
+  # The fallback answers the customer messages of the run too, so they are not sent to the
+  # agent again if the conversation is returned to it.
   def hand_off_with_fallback
-    AutomatoAgents::Chatwoot::Replier.send_text(conversation: @conversation, agent_bot: @team.agent_bot, content: @setting.fallback_message)
+    send_text(@setting.fallback_message)
   ensure
     @conversation.reload.bot_handoff!
+  end
+
+  def send_text(content)
+    AutomatoAgents::Chatwoot::Replier.send_text(
+      conversation: @conversation,
+      agent_bot: @team.agent_bot,
+      content: content,
+      content_attributes: AutomatoAgents::Chatwoot::ReplyMarker.content_attributes(run_id: @run.id, answered_through: @run.trigger_message_id)
+    )
   end
 
   def still_served?

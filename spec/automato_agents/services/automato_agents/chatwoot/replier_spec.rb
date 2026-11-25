@@ -16,6 +16,15 @@ RSpec.describe AutomatoAgents::Chatwoot::Replier do
         content: 'Olá!', sender: agent_bot, private: false
       )
     end
+
+    it 'stores the given content attributes with the message' do
+      message = described_class.send_text(
+        conversation: conversation, agent_bot: agent_bot, content: 'Olá!',
+        content_attributes: { automato_agents: { run_id: 7, answered_through: 42 } }
+      )
+
+      expect(message.reload.content_attributes).to eq('automato_agents' => { 'run_id' => 7, 'answered_through' => 42 })
+    end
   end
 
   describe '.send_options' do
