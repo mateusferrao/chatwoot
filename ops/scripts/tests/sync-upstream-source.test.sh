@@ -29,7 +29,7 @@ git init -q -b main "$upstream"
   echo "um"      > ours.txt
   echo "um"      > app.txt
   git add -A && git commit -q -m "v1.0.0" && git tag v1.0.0
-) 
+)
 
 # --- fork sintético, clonado do upstream na v1.0.0 -----------------------------
 fork_template="$work/fork-template"

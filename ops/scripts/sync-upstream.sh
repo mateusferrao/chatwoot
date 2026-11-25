@@ -54,11 +54,12 @@ done
 
 [[ -n "$TAG" ]] || usage
 
-# Fonte que não é URL é um arquivo bundle: valida e vira caminho absoluto (o script muda de diretório).
+# Fonte aceita: URL git (com "://") ou arquivo bundle. Um arquivo vira caminho absoluto (o script muda de diretório).
 source_is_bundle=false
-if [[ -n "$SOURCE" && "$SOURCE" != *://* && "$SOURCE" != git@* ]]; then
+if [[ -n "$SOURCE" && "$SOURCE" != *://* ]]; then
   if [[ ! -f "$SOURCE" ]]; then
-    echo "Erro: arquivo de bundle não encontrado: $SOURCE" >&2
+    echo "Erro: --source deve ser o caminho de um arquivo bundle existente ou uma URL git (com ://); não encontrado: $SOURCE" >&2
+    echo "      Diretórios locais e endereços no formato git@host:repo não são suportados." >&2
     exit 1
   fi
   SOURCE="$(cd "$(dirname "$SOURCE")" && pwd)/$(basename "$SOURCE")"

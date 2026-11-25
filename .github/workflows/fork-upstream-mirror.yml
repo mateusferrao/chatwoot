@@ -40,6 +40,11 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       GH_REPO: ${{ github.repository }}
     steps:
+      - name: Checkout (só os scripts de ops)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: ops/scripts
+
       - name: Buscar develop, master e tags do upstream
         run: |
           set -euo pipefail
@@ -89,6 +94,7 @@ jobs:
           base="${MIRROR_PREFIX}$(date -u +%Y-%m-%d)"
           tag="$base"
           n=2
+          # Qualquer erro da API conta como "tag não existe"; se não existir de fato, o `gh release create` falha com erro claro.
           while gh release view "$tag" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$tag" >/dev/null 2>&1; do
             tag="${base}-${n}"
             n=$((n + 1))
@@ -123,13 +129,15 @@ jobs:
             --notes-file "$RUNNER_TEMP/notes.md" \
             --prerelease \
             --latest=false
+          echo "MIRROR_NEW_TAG=$tag" >> "$GITHUB_ENV"
 
       - name: Aplicar retenção (manter as 8 mais recentes)
         run: |
           set -euo pipefail
-          # Só considera Releases cuja tag começa com o prefixo do espelho; as demais nunca são tocadas.
-          old_tags="$(gh release list --limit 200 --json tagName,createdAt \
-            --jq "[.[] | select(.tagName | startswith(\"${MIRROR_PREFIX}\"))] | sort_by(.createdAt) | reverse | .[${MIRROR_RETENTION}:] | .[].tagName")"
+          # Ordena pelo nome da tag (data e sufixo), não por createdAt: a data de uma Release no GitHub
+          # é a do commit alvo, que pode ser a mesma para todas. A tag desta execução nunca é apagada.
+          old_tags="$(gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | ops/scripts/select-mirror-releases-to-delete.sh "$MIRROR_PREFIX" "$MIRROR_RETENTION" "$MIRROR_NEW_TAG")"
           for old_tag in $old_tags; do
             case "$old_tag" in
               "${MIRROR_PREFIX}"*)
