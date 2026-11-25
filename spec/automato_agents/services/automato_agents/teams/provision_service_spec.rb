@@ -137,6 +137,57 @@ RSpec.describe AutomatoAgents::Teams::ProvisionService do
       expect(AgentBot.exists?(bot_id)).to be(true)
     end
 
+    describe 'handoff of conversations the team stops serving' do
+      def expect_handed_off(conversation)
+        expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil, ai_assignee_type: nil)
+        expect(conversation.waiting_since).to be_present
+      end
+
+      it 'hands off the pending bot conversations when the team is disabled' do
+        enable_module
+        conversation = new_conversation
+
+        team.update!(enabled: false)
+
+        expect_handed_off(conversation)
+      end
+
+      it 'hands off the pending bot conversations when the account setting is disabled' do
+        enable_module
+        conversation = new_conversation
+
+        AutomatoAgents::AccountSetting.for(account).update!(enabled: false)
+
+        expect_handed_off(conversation)
+      end
+
+      it 'hands off only the conversations of an inbox removed from an active team' do
+        enable_module
+        kept_inbox = create(:inbox, account: account)
+        create(:automato_agents_team_inbox, team: team, inbox: kept_inbox)
+        described_class.new(team).perform
+        removed_conversation = new_conversation
+        kept_conversation = create(:conversation, account: account, inbox: kept_inbox).reload
+
+        team.team_inboxes.find_by!(inbox: inbox).destroy!
+        described_class.new(team).perform
+
+        expect_handed_off(removed_conversation)
+        expect(kept_conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: team.agent_bot_id)
+      end
+
+      it 'does not touch conversations pending on another bot' do
+        enable_module
+        other_bot = create(:agent_bot, account: account)
+        conversation = new_conversation
+        conversation.update!(ai_assignee: other_bot)
+
+        team.update!(enabled: false)
+
+        expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: other_bot.id)
+      end
+    end
+
     it 'makes no HTTP request nor enqueues a bot webhook when a message is created' do
       enable_module
       conversation = new_conversation

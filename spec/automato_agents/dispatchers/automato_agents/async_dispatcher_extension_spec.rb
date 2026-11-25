@@ -11,10 +11,10 @@ RSpec.describe AutomatoAgents::AsyncDispatcherExtension do
     expect(async_dispatcher.listeners).to include(AutomatoAgents::EventListener.instance, WebhookListener.instance)
   end
 
-  it 'has the event listener subscribed when the application booted' do
+  it 'has the event listener subscribed exactly once when the application booted' do
     subscribed = async_dispatcher.send(:local_registrations).map(&:listener)
 
-    expect(subscribed).to include(AutomatoAgents::EventListener.instance)
+    expect(subscribed.count(AutomatoAgents::EventListener.instance)).to eq(1)
   end
 
   it 'does not subscribe the event listener to the sync dispatcher' do
