@@ -4,6 +4,10 @@
 # - Disparo manual (Actions > "Fork - imagem CE" > Run workflow) ou push de tag
 #   "release-*": compila e publica em ghcr.io/<dono>/<repo>.
 #
+# - Job "Build com pacotes da Chatwoot indisponíveis": prova de que o modo de emergência
+#   (cópias em vendor/fork-mirror/) gera a imagem. Roda em PR que toca a cópia ou no
+#   disparo manual com "testar_emergencia" marcado. Nunca publica.
+#
 # A imagem é gerada aqui (runner do GitHub) e NÃO na VPS: o build (bundle + Vite)
 # exige bem mais CPU/RAM do que o servidor de produção tem sobrando.
 # Detalhes e uso no Easypanel: docs/fork/deploy-easypanel.md
@@ -16,12 +20,18 @@ on:
       - '.github/workflows/fork-ce-image.yml'
       - 'ops/**'
       - 'docker/**'
+      - 'vendor/fork-mirror/**'
       - 'Gemfile.lock'
       - 'pnpm-lock.yaml'
   push:
     tags:
       - 'release-*'
   workflow_dispatch:
+    inputs:
+      testar_emergencia:
+        description: 'Também rodar o build de prova com os pacotes da Chatwoot Inc. indisponíveis (não publica imagem)'
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -93,3 +103,91 @@ jobs:
             org.opencontainers.image.licenses=MIT
           cache-from: type=gha,scope=fork-ce-amd64
           cache-to: type=gha,mode=max,scope=fork-ce-amd64,ignore-error=true
+
+  # Decide se o build de prova roda: disparo manual com o input marcado, ou PR que
+  # mexe na cópia dos pacotes (o filtro "paths" acima também cobre ops/** e docker/**).
+  escopo-emergencia:
+    name: Decidir se o build de emergência se aplica
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.testar_emergencia)
+    outputs:
+      rodar: ${{ steps.decidir.outputs.rodar }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+
+      - name: Decidir
+        id: decidir
+        run: |
+          rodar=false
+          if [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ]; then
+            rodar=true
+          elif git diff --name-only HEAD^1 HEAD | grep -Eq '^(vendor/fork-mirror/|ops/scripts/.*vendored)'; then
+            rodar=true
+          fi
+          echo "rodar=${rodar}" >> "$GITHUB_OUTPUT"
+          echo "Build de emergência: ${rodar}"
+
+  build-emergencia:
+    name: Build com pacotes da Chatwoot indisponíveis
+    needs: escopo-emergencia
+    if: needs.escopo-emergencia.outputs.rodar == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Aplicar o modo de emergência e gerar o Dockerfile derivado
+        run: ops/scripts/use-vendored-packages.sh --dockerfile tmp/Dockerfile.emergencia
+
+      - name: Conferir que as gems da Chatwoot vêm de vendor/fork-mirror e não do RubyGems
+        run: |
+          for gem in ai-agents twitty; do
+            grep -Eq "^  remote: vendor/fork-mirror/gems/${gem}-[0-9.]+$" Gemfile.lock \
+              || { echo "ERRO: ${gem} não está numa seção PATH do Gemfile.lock"; exit 1; }
+            # Dentro do bloco GEM (RubyGems) a gem não pode aparecer.
+            if awk '/^GEM$/{in_gem=1; next} /^[A-Z]/{in_gem=0} in_gem' Gemfile.lock | grep -Eq "^    ${gem} \("; then
+              echo "ERRO: ${gem} ainda é resolvida pelo RubyGems"; exit 1
+            fi
+          done
+          echo "ai-agents e twitty vêm de PATH."
+
+      - name: Bloquear o escopo @chatwoot do npm e instalar
+        run: |
+          echo '@chatwoot:registry=http://127.0.0.1:9/' > .npmrc
+          pnpm install --frozen-lockfile
+          # O mesmo bloqueio vale dentro do build da imagem (o Dockerfile só copia package.json e o lockfile).
+          sed -i 's|^RUN pnpm i$|RUN echo "@chatwoot:registry=http://127.0.0.1:9/" >> .npmrc\nRUN pnpm i|' tmp/Dockerfile.emergencia
+          grep -q '^RUN echo "@chatwoot:registry' tmp/Dockerfile.emergencia
+
+      - name: Preparar edição CE (remove enterprise/)
+        env:
+          CI: 'true'
+        run: |
+          ops/scripts/strip-enterprise.sh
+          echo -en '\nENV CW_EDITION="ce"' >> tmp/Dockerfile.emergencia
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build (nunca publica)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: tmp/Dockerfile.emergencia
+          platforms: linux/amd64
+          push: false
+          tags: fork-ce-emergencia:teste

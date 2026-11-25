@@ -37,6 +37,7 @@ Se sobrar conflito não previsto, o script para (saída 2) e lista os arquivos. 
 - [ ] **`.env.example`:** variáveis novas que precisam ir para `ops/env/production.env.example` e para o Easypanel.
 - [ ] **Workflows novos** do upstream: se forem da operação da Chatwoot Inc., remova e adicione em `removed-paths.txt`.
 - [ ] **`enterprise/`:** recursos mudaram de lado? Atualize [`edicao-ce.md`](edicao-ce.md).
+- [ ] **Pacotes da Chatwoot Inc.** (`@chatwoot/*`, `ai-agents`, `twitty`) mudaram de versão? Rode `ops/scripts/refresh-vendored-packages.sh` e faça commit de `vendor/fork-mirror/` ([`independencia-upstream.md`](independencia-upstream.md)).
 - [ ] **Ruby/Node** mudaram: nada a fazer no servidor (a imagem já traz), mas o ambiente de desenvolvimento precisa acompanhar.
 
 ## Publicar

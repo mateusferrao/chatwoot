@@ -37,6 +37,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | `Gemfile.lock`: `puma` 7.2.3 e `rack-protection` 4.2.2 | Correções de segurança apontadas pelo `bundle-audit` e publicadas depois da v4.20.1. O `develop` do upstream já tem as mesmas versões; registrado em `ops/upstream-sync/theirs-paths.txt` |
 | `rails fork:branding:apply` ([`lib/fork/branding.rb`](lib/fork/branding.rb)) | Aplica nome, URL e logos da Automato (na CE não há tela para isso) e remove o "Powered by" do widget e da central de ajuda |
 | Workflow **Fork - espelho do upstream** | Guarda semanalmente um git bundle do upstream em Releases do nosso repo, para o fork poder se atualizar se o `chatwoot/chatwoot` sumir ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
+| `vendor/fork-mirror/` | Cópia dos pacotes `@chatwoot/*` (npm) e das gems `ai-agents` e `twitty`, publicados pela Chatwoot Inc.; permite gerar a imagem se forem despublicados ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
 | `ops/` e `docs/fork/` | Ferramentas e documentação próprias do fork |
 
 Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da edição CE em todo PR.
