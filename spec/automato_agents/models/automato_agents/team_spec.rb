@@ -150,6 +150,13 @@ RSpec.describe AutomatoAgents::Team do
       expect(team.reload.serves?(conversation)).to be(false)
     end
 
+    it 'is false while the agent is paused in the conversation' do
+      AutomatoAgents::ConversationState.for(conversation).pause!(nil)
+
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: team.reload.agent_bot_id)
+      expect(team.serves?(conversation)).to be(false)
+    end
+
     it 'is false when the assignee id matches but is not an AgentBot' do
       conversation.ai_assignee_type = 'Captain::Assistant'
 

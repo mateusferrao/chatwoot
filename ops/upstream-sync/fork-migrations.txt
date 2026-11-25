@@ -19,3 +19,4 @@ db/migrate/20261125185734_create_automato_agents_usage_entries.rb
 db/migrate/20261125190645_create_automato_agents_runs.rb
 db/migrate/20261125190649_create_automato_agents_steps.rb
 db/migrate/20261125190654_add_run_id_to_automato_agents_usage_entries.rb
+db/migrate/20261125194817_create_automato_agents_conversation_states.rb
