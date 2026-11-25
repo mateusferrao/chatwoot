@@ -1,7 +1,8 @@
 # One agent turn of a conversation served by a team (TurnJob checks that and holds the
 # conversation lock): answers the customer messages not answered yet, recording the trace (Run
-# and Steps) and the LLM usage. On any failure the customer gets the account fallback message
-# and the conversation goes to humans, so it never stays pending on the bot.
+# and Steps) and the LLM usage. The account monthly budget is checked before calling the AI. On
+# any failure the customer gets the account fallback message and the conversation goes to
+# humans, so it never stays pending on the bot.
 class AutomatoAgents::Turn
   # The echo agent has no tools, so one provider request answers it (see the time budget in
   # AutomatoAgents::Llm::OpenRouterProvider).
@@ -11,8 +12,8 @@ class AutomatoAgents::Turn
   class BlankTextError < StandardError
   end
 
-  # A human took over, the conversation was resolved, or the team or account was disabled
-  # while the agent was thinking: the agent must stay silent.
+  # A human took over or replied, the conversation was resolved, or the team or account was
+  # disabled while the agent was thinking: the agent must stay silent.
   class NoLongerServedError < StandardError
   end
 
@@ -49,9 +50,13 @@ class AutomatoAgents::Turn
   end
 
   def last_reply_by_others_id
+    replies_by_others.maximum(:id)
+  end
+
+  def replies_by_others
     table = Message.arel_table
     not_from_team_bot = table[:sender_type].is_distinct_from('AgentBot').or(table[:sender_id].is_distinct_from(@team.agent_bot_id))
-    @conversation.messages.outgoing.where(private: false).where(not_from_team_bot).maximum(:id)
+    @conversation.messages.outgoing.where(private: false).where(not_from_team_bot)
   end
 
   # trigger_message_id is the last customer message this run answers
@@ -67,7 +72,12 @@ class AutomatoAgents::Turn
   end
 
   def run_turn(messages)
-    answer(messages)
+    policy = exceeded_budget_policy
+    if policy == 'handoff'
+      hand_off_over_budget
+    else
+      answer(messages, policy == 'cheaper_model' ? @setting.cheaper_model : @setting.default_model)
+    end
   rescue StandardError => e
     fail_run(e)
   ensure
@@ -75,19 +85,54 @@ class AutomatoAgents::Turn
     mark_interrupted($ERROR_INFO) if @run.status_in_database == 'running'
   end
 
-  def answer(messages)
+  # Checked before any AI call. Returns the account budget policy, recorded as a budget step,
+  # when the monthly budget is exceeded; nil within the budget.
+  def exceeded_budget_policy
+    budget = AutomatoAgents::Budget.new(@account)
+    return if budget.status == :ok
+
+    policy = @setting.budget_policy
+    Rails.logger.warn("[AutomatoAgents] monthly AI budget exceeded account=#{@account.id} run=#{@run.id} policy=#{policy}")
+    @run.add_step!(
+      kind: 'budget', name: policy,
+      output: { policy: policy, spent_brl: budget.spent_brl, monthly_budget_brl: @setting.monthly_budget_brl }
+    )
+    policy
+  end
+
+  # The handoff budget policy: the customer is told and handed to humans without any AI call.
+  # The run succeeds, as the policy did what the account asked; the budget step tells it apart.
+  def hand_off_over_budget
+    ensure_still_served!
+    send_budget_message
+    finish_run('succeeded')
+  end
+
+  # Carries the ReplyMarker like any answer, so a repeated turn does not send it again. As in
+  # the failure path, the message goes first because a bot message clears waiting_since; the
+  # handoff sets it again even when sending fails.
+  def send_budget_message
+    record_reply(send_text(@setting.budget_exceeded_message))
+  ensure
+    @conversation.reload.bot_handoff!
+  end
+
+  def answer(messages, model)
     input = customer_text(messages)
     llm_calls = []
-    result = run_agent(input, llm_calls)
+    result = run_agent(input, model, llm_calls)
     record_llm_calls(input, llm_calls)
     raise result.error if result.error
     raise BlankTextError, 'the agent returned no text' if result.output.blank?
-    raise NoLongerServedError, 'the conversation is no longer served by the team' unless still_served?
 
-    reply = send_text(result.output)
+    ensure_still_served!
+    record_reply(send_text(result.output))
+    finish_run('succeeded')
+  end
+
+  def record_reply(reply)
     @reply_sent = true
     @run.add_step!(kind: 'message_sent', name: 'send_text', output: { message_id: reply.id, content: reply.content })
-    finish_run('succeeded')
   end
 
   def customer_text(messages)
@@ -99,12 +144,12 @@ class AutomatoAgents::Turn
 
   # The callback only collects in memory: ai-agents swallows callback exceptions, so the usage
   # is persisted afterwards, where a failure reaches the fallback path.
-  def run_agent(input, llm_calls)
+  def run_agent(input, model, llm_calls)
     # resolved before running so a missing key raises here, without any request
     llm_context = AutomatoAgents::Llm::OpenRouterProvider.new(account: @account).context
-    agent = AutomatoAgents::Agents::EchoBuilder.build(@setting)
-    collect_llm_call = proc do |_agent_name, model, response|
-      llm_calls << { model: model, response: response, finished_at: Time.current }
+    agent = AutomatoAgents::Agents::EchoBuilder.build(model: model)
+    collect_llm_call = proc do |_agent_name, called_model, response|
+      llm_calls << { model: called_model, response: response, finished_at: Time.current }
     end
 
     AutomatoAgents::Llm::ContextRunner.new(llm_context).run(
@@ -166,9 +211,16 @@ class AutomatoAgents::Turn
     )
   end
 
+  def ensure_still_served!
+    raise NoLongerServedError, 'the conversation is no longer served by the team' unless still_served?
+  end
+
+  # Team#serves? sees a human reply once its event paused the agent. Until that event is
+  # processed, a reply by someone else after the last customer message of the run already means
+  # a person is answering.
   def still_served?
     @conversation.reload
-    @team.reload.serves?(@conversation)
+    @team.reload.serves?(@conversation) && !replies_by_others.exists?(id: (@run.trigger_message_id + 1)..)
   end
 
   def finish_run(status, error = nil)

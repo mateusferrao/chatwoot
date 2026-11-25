@@ -9,8 +9,15 @@ class AutomatoAgents::Chatwoot::ReplyMarker
     { KEY => { 'run_id' => run_id, 'answered_through' => answered_through } }
   end
 
+  # A turn only answers customer messages after the last answered one, so the latest marked
+  # message of the bot holds the highest marker: only that message is read.
   def self.last_answered_message_id(conversation, agent_bot_id)
-    conversation.messages.outgoing.where(sender_type: 'AgentBot', sender_id: agent_bot_id).maximum(answered_through_column)
+    answered_through = answered_through_column
+    conversation.messages.outgoing
+                .where(sender_type: 'AgentBot', sender_id: agent_bot_id)
+                .where(answered_through.not_eq(nil))
+                .reorder(id: :desc)
+                .pick(answered_through)
   end
 
   # Message stores content_attributes (a json column) through the JSON coder, so the column

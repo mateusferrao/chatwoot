@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_11_25_194817) do
+ActiveRecord::Schema[7.1].define(version: 2026_11_25_200557) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -335,6 +335,11 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_194817) do
     t.text "fallback_message", default: "Desculpe, tive um problema por aqui. Vou te passar para alguém da nossa equipe.", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.decimal "monthly_budget_brl", precision: 12, scale: 2
+    t.decimal "usd_brl_rate", precision: 10, scale: 4, default: "5.5", null: false
+    t.string "budget_policy", default: "handoff", null: false
+    t.string "cheaper_model", default: "google/gemini-2.5-flash-lite", null: false
+    t.text "budget_exceeded_message", default: "No momento vou te passar para alguém da nossa equipe, que já vai te responder.", null: false
     t.index ["account_id"], name: "index_automato_agents_account_settings_on_account_id", unique: true
   end
 
