@@ -19,7 +19,17 @@ class AutomatoAgents::AccountSetting < ApplicationRecord
 
   validates :account_id, uniqueness: true
 
+  after_commit :provision_teams, if: :saved_change_to_enabled?, on: [:create, :update]
+
   def self.for(account)
     find_or_initialize_by(account_id: account.id)
+  end
+
+  private
+
+  def provision_teams
+    AutomatoAgents::Team.where(account_id: account_id).find_each do |team|
+      AutomatoAgents::Teams::ProvisionService.new(team).perform
+    end
   end
 end
