@@ -2,8 +2,9 @@
 # ActionController::Parameters because Messages::MessageBuilder only keeps the input_select
 # items from it (with a plain Hash the items store accessor is overwritten with nil).
 class AutomatoAgents::Chatwoot::Replier
-  def self.send_text(conversation:, agent_bot:, content:)
-    create_message(conversation, agent_bot, content: content)
+  # content_attributes: e.g. the AutomatoAgents::Chatwoot::ReplyMarker of an agent answer
+  def self.send_text(conversation:, agent_bot:, content:, content_attributes: {})
+    create_message(conversation, agent_bot, content: content, content_attributes: content_attributes)
   end
 
   # options: [{ title:, value: }]

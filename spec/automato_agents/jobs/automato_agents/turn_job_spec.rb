@@ -94,6 +94,14 @@ RSpec.describe AutomatoAgents::TurnJob do
     expect(Redis::Alfred.exists?(lock_key)).to be(false)
   end
 
+  it 'skips the turn when the agent was paused after the turn was scheduled' do
+    AutomatoAgents::ConversationState.for(conversation).pause!(nil)
+
+    described_class.perform_now(conversation.id, 'current-token')
+
+    expect(turn).not_to have_received(:perform)
+  end
+
   it 'skips the turn when the team was disabled after the turn was scheduled' do
     team.update!(enabled: false)
     # disabling hands the conversation off; put it back on the bot so only the team state blocks the turn
