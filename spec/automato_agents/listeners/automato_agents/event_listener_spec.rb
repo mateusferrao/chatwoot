@@ -33,6 +33,13 @@ RSpec.describe AutomatoAgents::EventListener do
     expect(Redis::Alfred.get(token_key)).to be_nil
   end
 
+  # Disabling the team or the account hands its conversations off; this restores one still
+  # pending on the team bot, the state of a message that arrives in the meantime.
+  def put_back_on_team_bot
+    conversation.reload.update!(status: :pending, ai_assignee: team.agent_bot, waiting_since: nil)
+    expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: team.agent_bot_id)
+  end
+
   def expect_handed_off(assignee: nil)
     expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil, assignee: assignee)
     expect(conversation.waiting_since).to be_present
@@ -162,7 +169,8 @@ RSpec.describe AutomatoAgents::EventListener do
 
     it 'hands off a conversation of a disabled team that is still pending on its bot' do
       conversation
-      team.update_columns(enabled: false) # rubocop:disable Rails/SkipsModelValidations -- bypasses the provisioning handoff
+      team.update!(enabled: false)
+      put_back_on_team_bot
 
       deliver_message(message_type: :incoming)
 
@@ -171,7 +179,8 @@ RSpec.describe AutomatoAgents::EventListener do
 
     it 'hands off a conversation of a disabled account that is still pending on the team bot' do
       conversation
-      AutomatoAgents::AccountSetting.for(account).update_columns(enabled: false) # rubocop:disable Rails/SkipsModelValidations -- bypasses the provisioning handoff
+      AutomatoAgents::AccountSetting.for(account).update!(enabled: false)
+      put_back_on_team_bot
 
       deliver_message(message_type: :incoming)
 

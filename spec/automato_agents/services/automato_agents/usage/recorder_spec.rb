@@ -44,12 +44,24 @@ RSpec.describe AutomatoAgents::Usage::Recorder do
     let(:model) { 'google/gemini-2.5-flash-lite' }
 
     it 'stores the calculated cost as estimated' do
+      registry = JSON.parse(File.read(RubyLLM.config.model_registry_file))
+      pricing = registry.find { |entry| entry['id'] == model && entry['provider'] == 'openrouter' }&.dig('pricing', 'text_tokens', 'standard')
+      expect(pricing).to be_present, "#{RubyLLM.config.model_registry_file} has no openrouter pricing for #{model}; pick a priced model"
+
       entry = record
 
       expect(entry.cost_source).to eq('estimated')
       expect(entry.cost_usd).to be_positive
       expect(entry.cost_usd).to eq(message.cost.total.to_d.round(8))
     end
+  end
+
+  it 'links the entry to the agent run' do
+    run = AutomatoAgents::Run.create!(account: account, team: team, conversation: conversation, status: 'running')
+
+    entry = described_class.record!(account: account, model: model, message: message, run: run)
+
+    expect(entry.run).to eq(run)
   end
 
   it 'accepts entries without team and conversation and with another kind' do

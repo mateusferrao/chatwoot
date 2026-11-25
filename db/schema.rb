@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_11_25_185734) do
+ActiveRecord::Schema[7.1].define(version: 2026_11_25_190654) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -338,6 +338,37 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_185734) do
     t.index ["account_id"], name: "index_automato_agents_account_settings_on_account_id", unique: true
   end
 
+  create_table "automato_agents_runs", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "team_id", null: false
+    t.bigint "conversation_id", null: false
+    t.string "status", null: false
+    t.bigint "trigger_message_id"
+    t.datetime "started_at"
+    t.datetime "finished_at"
+    t.string "error_class"
+    t.text "error_message"
+    t.decimal "cost_usd", precision: 14, scale: 8
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["account_id"], name: "index_automato_agents_runs_on_account_id"
+    t.index ["conversation_id", "created_at"], name: "index_automato_agents_runs_on_conversation_id_and_created_at"
+    t.index ["team_id"], name: "index_automato_agents_runs_on_team_id"
+  end
+
+  create_table "automato_agents_steps", force: :cascade do |t|
+    t.bigint "run_id", null: false
+    t.integer "position", null: false
+    t.string "kind", null: false
+    t.string "name"
+    t.jsonb "input", default: {}, null: false
+    t.jsonb "output", default: {}, null: false
+    t.decimal "cost_usd", precision: 14, scale: 8
+    t.integer "duration_ms"
+    t.datetime "created_at", null: false
+    t.index ["run_id", "position"], name: "index_automato_agents_steps_on_run_id_and_position", unique: true
+  end
+
   create_table "automato_agents_team_inboxes", force: :cascade do |t|
     t.bigint "team_id", null: false
     t.bigint "inbox_id", null: false
@@ -374,7 +405,9 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_185734) do
     t.string "cost_source", null: false
     t.string "key_source", default: "automato", null: false
     t.datetime "created_at", null: false
+    t.bigint "run_id"
     t.index ["account_id", "created_at"], name: "idx_on_account_id_created_at_f49dd83df0"
+    t.index ["run_id"], name: "index_automato_agents_usage_entries_on_run_id"
   end
 
   create_table "calls", force: :cascade do |t|
@@ -1935,11 +1968,16 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_185734) do
   add_foreign_key "active_storage_attachments", "active_storage_blobs", column: "blob_id"
   add_foreign_key "active_storage_variant_records", "active_storage_blobs", column: "blob_id"
   add_foreign_key "automato_agents_account_settings", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_runs", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_runs", "automato_agents_teams", column: "team_id", on_delete: :cascade
+  add_foreign_key "automato_agents_runs", "conversations", on_delete: :cascade
+  add_foreign_key "automato_agents_steps", "automato_agents_runs", column: "run_id", on_delete: :cascade
   add_foreign_key "automato_agents_team_inboxes", "automato_agents_teams", column: "team_id", on_delete: :cascade
   add_foreign_key "automato_agents_team_inboxes", "inboxes", on_delete: :cascade
   add_foreign_key "automato_agents_teams", "accounts", on_delete: :cascade
   add_foreign_key "automato_agents_teams", "agent_bots", on_delete: :nullify
   add_foreign_key "automato_agents_usage_entries", "accounts", on_delete: :cascade
+  add_foreign_key "automato_agents_usage_entries", "automato_agents_runs", column: "run_id", on_delete: :nullify
   add_foreign_key "campaign_recipients", "accounts", on_delete: :cascade
   add_foreign_key "campaign_recipients", "campaigns", on_delete: :cascade
   add_foreign_key "campaign_recipients", "contacts", on_delete: :cascade

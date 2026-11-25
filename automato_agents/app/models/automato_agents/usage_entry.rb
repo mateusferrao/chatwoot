@@ -29,6 +29,7 @@ class AutomatoAgents::UsageEntry < ApplicationRecord
   KEY_SOURCES = %w[automato].freeze
 
   belongs_to :account
+  belongs_to :run, class_name: 'AutomatoAgents::Run', optional: true, inverse_of: :usage_entries
 
   validates :provider, :model, presence: true
   validates :kind, inclusion: { in: KINDS }

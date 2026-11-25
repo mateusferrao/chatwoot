@@ -1,7 +1,7 @@
 class AutomatoAgents::Usage::Recorder
-  # scope accepts the optional team: and conversation: the usage belongs to.
+  # scope accepts the optional team:, conversation: and run: the usage belongs to.
   def self.record!(account:, model:, message:, kind: 'chat', **scope)
-    scope.assert_valid_keys(:team, :conversation)
+    scope.assert_valid_keys(:team, :conversation, :run)
     tokens = message.tokens
     cost = message.cost
 
@@ -9,6 +9,7 @@ class AutomatoAgents::Usage::Recorder
       account: account,
       team_id: scope[:team]&.id,
       conversation_id: scope[:conversation]&.id,
+      run_id: scope[:run]&.id,
       provider: AutomatoAgents::Llm::OpenRouterProvider::PROVIDER.to_s,
       model: model,
       kind: kind,

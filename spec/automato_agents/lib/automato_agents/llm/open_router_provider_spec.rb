@@ -16,17 +16,21 @@ RSpec.describe AutomatoAgents::Llm::OpenRouterProvider do
     }
   end
 
+  def open_chat
+    provider.context.chat(model: model, provider: :openrouter, assume_model_exists: true)
+  end
+
   def stub_completion
     stub_request(:post, completions_url)
       .to_return(status: 200, body: response_body.to_json, headers: { 'Content-Type' => 'application/json' })
   end
 
-  describe '#chat' do
+  describe 'chats built from #context' do
     it 'calls OpenRouter with the Automato key and the requested model' do
       stub = stub_completion
 
       with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key do
-        provider.chat(model: model).ask('Oi')
+        open_chat.ask('Oi')
       end
 
       expect(stub.with(headers: { 'Authorization' => "Bearer #{api_key}" }) { |req| JSON.parse(req.body)['model'] == model })
@@ -37,7 +41,7 @@ RSpec.describe AutomatoAgents::Llm::OpenRouterProvider do
       stub_completion
 
       response = with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key do
-        provider.chat(model: model).ask('Oi')
+        open_chat.ask('Oi')
       end
 
       expect(response.tokens.reported_cost).to eq(0.00012345)
@@ -49,7 +53,7 @@ RSpec.describe AutomatoAgents::Llm::OpenRouterProvider do
       global_key = RubyLLM.config.openrouter_api_key
 
       with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key do
-        provider.chat(model: model).ask('Oi')
+        open_chat.ask('Oi')
       end
 
       expect(RubyLLM.config.openrouter_api_key).to eq(global_key)
@@ -60,7 +64,7 @@ RSpec.describe AutomatoAgents::Llm::OpenRouterProvider do
       stub = stub_completion
 
       with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: nil do
-        expect { provider.chat(model: model) }.to raise_error(AutomatoAgents::Llm::MissingApiKeyError)
+        expect { open_chat }.to raise_error(AutomatoAgents::Llm::MissingApiKeyError)
       end
 
       expect(stub).not_to have_been_requested
@@ -73,28 +77,45 @@ RSpec.describe AutomatoAgents::Llm::OpenRouterProvider do
     end
   end
 
-  describe '#attach' do
-    it 'switches an existing chat to the Automato OpenRouter context' do
+  describe 'request headers' do
+    it 'identifies the app with the frontend url' do
       stub = stub_completion
-      chat = RubyLLM.context { |config| config.openrouter_api_key = 'global-key' }
-                    .chat(model: model, provider: :openrouter, assume_model_exists: true)
 
-      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key do
-        provider.attach(chat)
-        chat.ask('Oi')
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key, FRONTEND_URL: 'https://crm.example.com' do
+        open_chat.ask('Oi')
       end
 
-      expect(stub.with(headers: { 'Authorization' => "Bearer #{api_key}" })).to have_been_requested
+      expect(stub.with(headers: { 'X-OpenRouter-Title' => 'Automato Agents', 'HTTP-Referer' => 'https://crm.example.com' }))
+        .to have_been_requested
+    end
+
+    it 'falls back to the Automato url when FRONTEND_URL is blank' do
+      stub = stub_completion
+
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key, FRONTEND_URL: '' do
+        open_chat.ask('Oi')
+      end
+
+      expect(stub.with(headers: { 'X-OpenRouter-Title' => 'Automato Agents', 'HTTP-Referer' => 'https://automato.pro' }))
+        .to have_been_requested
     end
   end
 
-  describe '#fallback_model' do
-    it 'builds an OpenRouter model for an id outside the registry without raising' do
-      fallback = provider.fallback_model('x/y')
+  describe '#context' do
+    it 'bounds each request to the turn time budget' do
+      config = with_modified_env(AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key) { provider.context.config }
 
-      expect(fallback).to be_a(RubyLLM::Model)
-      expect(fallback.provider).to eq('openrouter')
-      expect(fallback.id).to eq('x/y')
+      expect(config).to have_attributes(request_timeout: 20, max_retries: 1, retry_max_interval: 5)
+    end
+
+    it 'logs the account without the key when the key is missing' do
+      allow(Rails.logger).to receive(:error)
+
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: nil do
+        expect { provider.context }.to raise_error(AutomatoAgents::Llm::MissingApiKeyError)
+      end
+
+      expect(Rails.logger).to have_received(:error).with(/account=#{account.id}/)
     end
   end
 end
