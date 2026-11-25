@@ -36,6 +36,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | Workflow **Fork - imagem CE** | Gera a imagem CE no GitHub Actions, já que a VPS não comporta o build |
 | `Gemfile.lock`: `puma` 7.2.3 e `rack-protection` 4.2.2 | Correções de segurança apontadas pelo `bundle-audit` e publicadas depois da v4.20.1. O `develop` do upstream já tem as mesmas versões; registrado em `ops/upstream-sync/theirs-paths.txt` |
 | `rails fork:branding:apply` ([`lib/fork/branding.rb`](lib/fork/branding.rb)) | Aplica nome, URL e logos da Automato (na CE não há tela para isso) e remove o "Powered by" do widget e da central de ajuda |
+| Workflow **Fork - espelho do upstream** | Guarda semanalmente um git bundle do upstream em Releases do nosso repo, para o fork poder se atualizar se o `chatwoot/chatwoot` sumir ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
 | `ops/` e `docs/fork/` | Ferramentas e documentação próprias do fork |
 
 Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da edição CE em todo PR.
@@ -48,6 +49,8 @@ Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da
 | [`docs/fork/whatsapp.md`](docs/fork/whatsapp.md) | WhatsApp oficial: setup manual e Embedded Signup |
 | [`docs/fork/deploy-easypanel.md`](docs/fork/deploy-easypanel.md) | Deploy em produção no Easypanel: serviços, healthcheck, pendências (SMTP, S3, backups) |
 | [`docs/fork/atualizar-upstream.md`](docs/fork/atualizar-upstream.md) | Como trazer novas versões do Chatwoot |
+| [`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md) | Espelho do upstream, atualização a partir dele e o que fazer se o upstream sumir |
+| [`docs/fork/agentes/design.md`](docs/fork/agentes/design.md) | Design da equipe de agentes de IA (planejado) |
 | [`docs/fork/canais-futuros.md`](docs/fork/canais-futuros.md) | Instagram/Facebook, e-mail e widget (planejados, não ativos) |
 
 ## Comandos úteis
@@ -58,6 +61,9 @@ ops/scripts/generate-secrets.sh
 
 # Trazer uma versão nova do Chatwoot
 ops/scripts/sync-upstream.sh v4.21.0
+
+# Idem, a partir do espelho em bundle (se o upstream estiver fora do ar)
+ops/scripts/sync-upstream.sh --source chatwoot-upstream.bundle v4.21.0
 
 # Aplicar a marca (no container, depois do primeiro deploy; LOGO_* são opcionais)
 BRAND_NAME="Automato" BRAND_URL="https://automato.pro" LOGO_URL="https://.../logo.svg" bundle exec rails fork:branding:apply
