@@ -40,15 +40,5 @@ RSpec.describe AutomatoAgents::Chatwoot::ReplyMarker do
 
       expect(described_class.last_answered_message_id(conversation, agent_bot.id)).to eq(40)
     end
-
-    # a turn only answers customer messages after the last answered one, so the latest marked
-    # message holds the highest marker; reading it alone avoids scanning every bot message
-    it 'reads the marker of the latest marked message of the bot' do
-      send_marked(agent_bot, 40)
-      send_marked(agent_bot, 15)
-      AutomatoAgents::Chatwoot::Replier.send_text(conversation: conversation, agent_bot: agent_bot, content: 'Sem marca')
-
-      expect(described_class.last_answered_message_id(conversation, agent_bot.id)).to eq(15)
-    end
   end
 end

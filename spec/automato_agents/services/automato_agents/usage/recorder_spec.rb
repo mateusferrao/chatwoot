@@ -38,6 +38,15 @@ RSpec.describe AutomatoAgents::Usage::Recorder do
       expect(entry.cost_usd).to be_nil
       expect(entry.input_tokens).to eq(12)
     end
+
+    it 'warns that the usage is left out of the budget' do
+      allow(Rails.logger).to receive(:warn).and_call_original
+
+      entry = record
+
+      expect(Rails.logger).to have_received(:warn)
+        .with("[AutomatoAgents] usage recorded without cost account=#{account.id} usage_entry=#{entry.id}")
+    end
   end
 
   context 'when the cost is not reported but the registry has pricing for the model' do

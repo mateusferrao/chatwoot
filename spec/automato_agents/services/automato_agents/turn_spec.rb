@@ -86,6 +86,12 @@ RSpec.describe AutomatoAgents::Turn do
     perform_enqueued_jobs(only: EventDispatcherJob) { human_reply }
   end
 
+  # As AutomationRules::ActionService#send_message does: no sender, marked with the rule.
+  def automation_sends(content)
+    params = { content: content, private: false, content_attributes: { automation_rule_id: 7 } }
+    Messages::MessageBuilder.new(nil, conversation.reload, params).perform
+  end
+
   def human_takes_over
     Conversations::AssignmentService.new(conversation: Conversation.find(conversation.id), assignee_id: create(:user, account: account).id).perform
   end
@@ -281,6 +287,39 @@ RSpec.describe AutomatoAgents::Turn do
       expect(bot_replies).to be_empty
       expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'RubyLLM::ServerError')
       expect(conversation.reload.assignee).to be_present
+    end
+  end
+
+  describe 'automated messages' do
+    it 'still replies when an automation sends a message while the agent thinks' do
+      stub_completion_while_thinking { automation_sends('Recebemos sua mensagem.') }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies.map(&:content)).to eq([agent_reply])
+      expect(AutomatoAgents::Run.sole.status).to eq('succeeded')
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+
+    it 'sends the fallback and hands off when the AI fails while an automation sends a message' do
+      stub_completion_while_thinking(status: 500) { automation_sends('Recebemos sua mensagem.') }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect_failed_turn('RubyLLM::ServerError')
+    end
+
+    it 'answers the customer message after a greeting automation sent before the turn' do
+      deliver('Oi')
+      perform_enqueued_jobs(only: EventDispatcherJob) { automation_sends('Olá! Já vamos te atender.') }
+      run_scheduled_turns
+
+      expect(completion_stub.with { |req| user_text_sent_to_model(req) == ['Oi'] }).to have_been_requested.once
+      expect(bot_replies.map(&:content)).to eq([agent_reply])
+      expect(AutomatoAgents::ConversationState.paused?(conversation)).to be(false)
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
     end
   end
 

@@ -9,29 +9,14 @@ class AutomatoAgents::Chatwoot::ReplyMarker
     { KEY => { 'run_id' => run_id, 'answered_through' => answered_through } }
   end
 
-  # A turn only answers customer messages after the last answered one, so the latest marked
-  # message of the bot holds the highest marker: only that message is read.
+  # The highest marker of the bot messages in the conversation, whatever order they were sent in.
   def self.last_answered_message_id(conversation, agent_bot_id)
-    answered_through = answered_through_column
-    conversation.messages.outgoing
-                .where(sender_type: 'AgentBot', sender_id: agent_bot_id)
-                .where(answered_through.not_eq(nil))
-                .reorder(id: :desc)
-                .pick(answered_through)
+    conversation.messages.outgoing.where(sender_type: 'AgentBot', sender_id: agent_bot_id).maximum(answered_through_column)
   end
 
-  # Message stores content_attributes (a json column) through the JSON coder, so the column
-  # holds a JSON-encoded string: #>> '{}' unwraps it before reading the marker, as
-  # Message.not_forwarded does.
   def self.answered_through_column
-    attributes = Arel::Nodes::InfixOperation.new('#>>', Message.arel_table[:content_attributes], Arel::Nodes.build_quoted('{}'))
-    answered_through = Arel::Nodes::InfixOperation.new('#>>', cast(attributes, 'jsonb'), Arel::Nodes.build_quoted("{#{KEY},answered_through}"))
-    cast(answered_through, 'bigint')
+    attributes = AutomatoAgents::Chatwoot::MessageAttributes
+    attributes.cast(attributes.content_text(KEY, 'answered_through'), 'bigint')
   end
   private_class_method :answered_through_column
-
-  def self.cast(expression, type)
-    Arel::Nodes::NamedFunction.new('CAST', [expression.as(type)])
-  end
-  private_class_method :cast
 end

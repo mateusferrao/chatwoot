@@ -36,11 +36,12 @@ class AutomatoAgents::Turn
   private
 
   # Incoming messages after the last one a message of this team's bot answered (its
-  # ReplyMarker, written with the message), or after the last reply of someone other than this
-  # team's bot (a human). Messages that arrive while a turn runs are left for the next turn.
+  # ReplyMarker, written with the message), or after the last human reply. Automated messages
+  # (e.g. a greeting automation) do not answer the customer. Messages that arrive while a turn
+  # runs are left for the next turn.
   def unanswered_customer_messages
     messages = @conversation.messages.incoming.where(private: false)
-    answered_through = [last_answered_message_id, last_reply_by_others_id].compact.max
+    answered_through = [last_answered_message_id, last_human_reply_id].compact.max
     messages = messages.where(id: (answered_through + 1)..) if answered_through
     messages.reorder(id: :desc).limit(MAX_INPUT_MESSAGES).to_a.reverse
   end
@@ -49,14 +50,12 @@ class AutomatoAgents::Turn
     AutomatoAgents::Chatwoot::ReplyMarker.last_answered_message_id(@conversation, @team.agent_bot_id)
   end
 
-  def last_reply_by_others_id
-    replies_by_others.maximum(:id)
+  def last_human_reply_id
+    human_replies.maximum(:id)
   end
 
-  def replies_by_others
-    table = Message.arel_table
-    not_from_team_bot = table[:sender_type].is_distinct_from('AgentBot').or(table[:sender_id].is_distinct_from(@team.agent_bot_id))
-    @conversation.messages.outgoing.where(private: false).where(not_from_team_bot)
+  def human_replies
+    AutomatoAgents::Chatwoot::HumanReply.of(@conversation.messages)
   end
 
   # trigger_message_id is the last customer message this run answers
@@ -216,11 +215,11 @@ class AutomatoAgents::Turn
   end
 
   # Team#serves? sees a human reply once its event paused the agent. Until that event is
-  # processed, a reply by someone else after the last customer message of the run already means
-  # a person is answering.
+  # processed, a human reply after the last customer message of the run already means a person
+  # is answering (that event then hands the conversation off).
   def still_served?
     @conversation.reload
-    @team.reload.serves?(@conversation) && !replies_by_others.exists?(id: (@run.trigger_message_id + 1)..)
+    @team.reload.serves?(@conversation) && !human_replies.exists?(id: (@run.trigger_message_id + 1)..)
   end
 
   def finish_run(status, error = nil)
