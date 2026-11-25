@@ -73,7 +73,7 @@ RSpec.describe AutomatoAgents::Teams::ProvisionService do
       other_bot = create(:agent_bot, account: account)
       create(:agent_bot_inbox, inbox: inbox, agent_bot: other_bot, account: account)
 
-      expect { described_class.new(team).perform }.to raise_error(AutomatoAgents::Teams::InboxBotConflictError, /outro bot/)
+      expect { described_class.new(team).perform }.to raise_error(AutomatoAgents::Teams::InboxBotConflictError, /is already linked to another bot/)
       expect(inbox.reload.agent_bot_inbox.agent_bot_id).to eq(other_bot.id)
     end
 

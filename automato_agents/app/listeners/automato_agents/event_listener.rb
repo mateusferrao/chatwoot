@@ -24,11 +24,10 @@ class AutomatoAgents::EventListener < BaseListener
     route(conversation, AutomatoAgents::Team.for_inbox(conversation.inbox))
   end
 
-  # Message#human_response? is the core definition of a reply by a person (a User, or the
-  # business from the native app), not by bots, automations, campaigns nor forwards. It is
-  # private in Message, hence send; the listener specs fail if it is renamed or removed.
+  # The same rule the turn uses to tell a human reply (Chatwoot::HumanReply), so pausing and
+  # answering never disagree. Only outgoing messages can be one.
   def human_reply?(message)
-    message.send(:human_response?)
+    message.outgoing? && AutomatoAgents::Chatwoot::HumanReply.of(Message.where(id: message.id)).exists?
   end
 
   # A human (or the business, from the native app) answered the customer: the agent stops
