@@ -2,7 +2,8 @@
 #
 # - Pull requests que mexem no build: só compila (valida que a imagem gera), sem publicar.
 # - Disparo manual (Actions > "Fork - imagem CE" > Run workflow) ou push de tag
-#   "release-*": compila e publica em ghcr.io/<dono>/<repo>.
+#   "release-*": compila e publica em ghcr.io/<dono>/<repo>. Exceção: disparo manual com
+#   "testar_emergencia" marcado roda só o build de prova de emergência e não publica nada.
 #
 # - Job "Build com pacotes da Chatwoot indisponíveis": prova de que o modo de emergência
 #   (cópias em vendor/fork-mirror/) gera a imagem. Roda em PR que toca a cópia ou no
@@ -29,7 +30,7 @@ on:
   workflow_dispatch:
     inputs:
       testar_emergencia:
-        description: 'Também rodar o build de prova com os pacotes da Chatwoot Inc. indisponíveis (não publica imagem)'
+        description: 'Rodar somente o build de prova com os pacotes da Chatwoot Inc. indisponíveis (nada é publicado)'
         type: boolean
         default: false
 
