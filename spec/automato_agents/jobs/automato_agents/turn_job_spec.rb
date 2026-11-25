@@ -95,7 +95,10 @@ RSpec.describe AutomatoAgents::TurnJob do
   end
 
   it 'skips the turn when the team was disabled after the turn was scheduled' do
-    team.update_columns(enabled: false) # rubocop:disable Rails/SkipsModelValidations -- keeps the conversation pending on the bot
+    team.update!(enabled: false)
+    # disabling hands the conversation off; put it back on the bot so only the team state blocks the turn
+    conversation.reload.update!(status: :pending, ai_assignee: team.agent_bot)
+    expect(conversation).to have_attributes(status: 'pending', assignee_agent_bot_id: team.agent_bot_id)
 
     described_class.perform_now(conversation.id, 'current-token')
 
@@ -153,12 +156,19 @@ RSpec.describe AutomatoAgents::TurnJob do
     expect(Redis::Alfred.get(token_key)).to be_nil
   end
 
-  it 'logs the turn' do
-    allow(AutomatoAgents::Turn).to receive(:new).and_call_original
-    allow(Rails.logger).to receive(:info)
+  it 'skips the turn when a duplicate of this job consumed the token between its check and the lock' do
+    lock_manager = Redis::LockManager.new
+    allow(Redis::LockManager).to receive(:new).and_return(lock_manager)
+    allow(lock_manager).to receive(:with_lock).and_wrap_original do |original, *args, &block|
+      # the duplicate ran the turn and consumed the token while this job was on its way to the lock
+      Redis::Alfred.delete(token_key)
+      original.call(*args, &block)
+    end
 
     described_class.perform_now(conversation.id, 'current-token')
 
-    expect(Rails.logger).to have_received(:info).with("[AutomatoAgents] turno conversation=#{conversation.id}")
+    expect(turn).not_to have_received(:perform)
+    expect(described_class).not_to have_been_enqueued
+    expect(Redis::Alfred.exists?(lock_key)).to be(false)
   end
 end

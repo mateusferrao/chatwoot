@@ -73,18 +73,45 @@ RSpec.describe AutomatoAgents::Llm::OpenRouterProvider do
     end
   end
 
-  describe '#attach' do
-    it 'switches an existing chat to the Automato OpenRouter context' do
+  describe 'request headers' do
+    it 'identifies the app with the frontend url' do
       stub = stub_completion
-      chat = RubyLLM.context { |config| config.openrouter_api_key = 'global-key' }
-                    .chat(model: model, provider: :openrouter, assume_model_exists: true)
 
-      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key do
-        provider.attach(chat)
-        chat.ask('Oi')
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key, FRONTEND_URL: 'https://crm.example.com' do
+        provider.chat(model: model).ask('Oi')
       end
 
-      expect(stub.with(headers: { 'Authorization' => "Bearer #{api_key}" })).to have_been_requested
+      expect(stub.with(headers: { 'X-OpenRouter-Title' => 'Automato Agents', 'HTTP-Referer' => 'https://crm.example.com' }))
+        .to have_been_requested
+    end
+
+    it 'falls back to the Automato url when FRONTEND_URL is blank' do
+      stub = stub_completion
+
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key, FRONTEND_URL: '' do
+        provider.chat(model: model).ask('Oi')
+      end
+
+      expect(stub.with(headers: { 'X-OpenRouter-Title' => 'Automato Agents', 'HTTP-Referer' => 'https://automato.pro' }))
+        .to have_been_requested
+    end
+  end
+
+  describe '#context' do
+    it 'bounds each request to the turn time budget' do
+      config = with_modified_env(AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key) { provider.context.config }
+
+      expect(config).to have_attributes(request_timeout: 40, max_retries: 1, retry_max_interval: 5)
+    end
+
+    it 'logs the account without the key when the key is missing' do
+      allow(Rails.logger).to receive(:error)
+
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: nil do
+        expect { provider.context }.to raise_error(AutomatoAgents::Llm::MissingApiKeyError)
+      end
+
+      expect(Rails.logger).to have_received(:error).with(/account=#{account.id}/)
     end
   end
 

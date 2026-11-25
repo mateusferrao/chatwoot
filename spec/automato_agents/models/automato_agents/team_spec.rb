@@ -158,7 +158,10 @@ RSpec.describe AutomatoAgents::Team do
 
     it 'is false when the team is not active' do
       conversation
-      AutomatoAgents::AccountSetting.for(account).update_columns(enabled: false) # rubocop:disable Rails/SkipsModelValidations -- keeps the conversation pending
+      AutomatoAgents::AccountSetting.for(account).update!(enabled: false)
+      # disabling hands the conversation off; put it back on the bot so only the account state is checked
+      conversation.reload.update!(status: :pending, ai_assignee: team.reload.agent_bot)
+      expect(conversation).to have_attributes(status: 'pending', assignee_agent_bot_id: team.agent_bot_id)
 
       expect(team.reload.serves?(conversation)).to be(false)
     end
