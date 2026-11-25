@@ -123,4 +123,44 @@ RSpec.describe AutomatoAgents::Team do
       expect(described_class.for_inbox(create(:inbox, account: account))).to be_nil
     end
   end
+
+  describe '#serves?' do
+    let(:inbox) { create(:inbox, account: account) }
+    let(:conversation) { create(:conversation, account: account, inbox: inbox).reload }
+
+    before do
+      create(:automato_agents_team_inbox, team: team, inbox: inbox)
+      create(:automato_agents_account_setting, account: account, enabled: true)
+      team.update!(enabled: true)
+    end
+
+    it 'is true for a pending conversation assigned to the team bot' do
+      expect(team.reload.serves?(conversation)).to be(true)
+    end
+
+    it 'is false once the conversation is no longer pending' do
+      conversation.bot_handoff!
+
+      expect(team.reload.serves?(conversation)).to be(false)
+    end
+
+    it 'is false for a conversation assigned to another bot' do
+      conversation.update!(ai_assignee: create(:agent_bot, account: account))
+
+      expect(team.reload.serves?(conversation)).to be(false)
+    end
+
+    it 'is false when the assignee id matches but is not an AgentBot' do
+      conversation.ai_assignee_type = 'Captain::Assistant'
+
+      expect(team.reload.serves?(conversation)).to be(false)
+    end
+
+    it 'is false when the team is not active' do
+      conversation
+      AutomatoAgents::AccountSetting.for(account).update_columns(enabled: false) # rubocop:disable Rails/SkipsModelValidations -- keeps the conversation pending
+
+      expect(team.reload.serves?(conversation)).to be(false)
+    end
+  end
 end

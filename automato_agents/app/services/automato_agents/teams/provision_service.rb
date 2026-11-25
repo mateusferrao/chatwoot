@@ -12,6 +12,7 @@ class AutomatoAgents::Teams::ProvisionService
       detach_removed_inboxes
       attach_team_inboxes
     end
+    hand_off_unserved_conversations
     @team
   end
 
@@ -39,6 +40,19 @@ class AutomatoAgents::Teams::ProvisionService
       ensure_not_linked_to_another_bot(agent_bot_inbox)
       agent_bot_inbox.update!(agent_bot: @team.agent_bot, status: status)
     end
+  end
+
+  # Customers already waiting on the bot must not stay pending once the team stops serving
+  # their inbox (team or account disabled, inbox removed from the team). Runs after the
+  # transaction so the handoff events are dispatched for committed state.
+  def hand_off_unserved_conversations
+    conversations = Conversation.pending.where(
+      account_id: @team.account_id,
+      ai_assignee_type: 'AgentBot',
+      assignee_agent_bot_id: @team.agent_bot_id
+    )
+    conversations = conversations.where.not(inbox_id: @team.inbox_ids) if @team.active?
+    conversations.find_each(&:bot_handoff!)
   end
 
   def ensure_not_linked_to_another_bot(agent_bot_inbox)
