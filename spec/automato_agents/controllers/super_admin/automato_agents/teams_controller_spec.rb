@@ -66,6 +66,12 @@ RSpec.describe 'Super Admin automato agents teams', type: :request do
       expect(response.body).to include('WhatsApp vendas')
     end
 
+    it 'names the create shortcuts of the command bar with the translated resource names' do
+      get '/super_admin/automato_agents/teams'
+
+      expect(response.body).to include('New agent team', 'New ai agents account', 'New agent bot')
+    end
+
     it 'offers the inboxes on the new form and only the team account inboxes on the edit form' do
       foreign_inbox = create(:inbox, account: create(:account), name: 'Outra conta')
       team = team_with_inbox
@@ -135,6 +141,19 @@ RSpec.describe 'Super Admin automato agents teams', type: :request do
         expect(response.body).to include('Disconnect Dialogflow before connecting Agent Bot')
         expect(AutomatoAgents::Team.count).to eq(0)
         expect(inbox.reload.agent_bot_inbox).to be_nil
+      end
+
+      it 'redirects to the saved team with an alert when provisioning fails after saving' do
+        service = instance_double(AutomatoAgents::Teams::ProvisionService)
+        allow(service).to receive(:perform).and_raise(AutomatoAgents::Teams::InboxBotConflictError.new(inbox))
+        allow(AutomatoAgents::Teams::ProvisionService).to receive(:new).and_return(service)
+
+        create_team(account_id: account.id, name: 'Vendas', inbox_ids: [inbox.id])
+
+        team = AutomatoAgents::Team.find_by!(name: 'Vendas')
+        expect(response).to redirect_to("/super_admin/automato_agents/teams/#{team.id}")
+        expect(flash[:error]).to eq("Saved, but provisioning failed: The inbox &#39;#{inbox.name}&#39; is already linked to another bot. " \
+                                    'Remove that link before adding the inbox to an agent team.')
       end
 
       it 'requires a name' do
@@ -230,6 +249,22 @@ RSpec.describe 'Super Admin automato agents teams', type: :request do
         expect(AutomatoAgents::Team.exists?(team.id)).to be(false)
         expect(inbox.reload.agent_bot_inbox).to be_nil
         expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
+      end
+
+      it 'refuses a team that has runs, keeping the team, its trail and its links' do
+        enable_module
+        team = team_with_inbox(enabled: true)
+        conversation = create(:conversation, account: account, inbox: inbox).reload
+        run = AutomatoAgents::Run.create!(account: account, team: team, conversation: conversation, status: 'succeeded')
+
+        delete "/super_admin/automato_agents/teams/#{team.id}"
+
+        expect(response).to redirect_to('/super_admin/automato_agents/teams')
+        expect(flash[:error]).to eq('Cannot delete: the team has agent runs. Disable it instead of deleting it.')
+        expect(AutomatoAgents::Team.exists?(team.id)).to be(true)
+        expect(AutomatoAgents::Run.exists?(run.id)).to be(true)
+        expect(inbox.reload.agent_bot_inbox).to have_attributes(agent_bot_id: team.agent_bot_id, status: 'active')
+        expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: team.agent_bot_id)
       end
     end
   end

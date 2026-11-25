@@ -30,11 +30,14 @@ en:
         enabled: 'Enabled'
         inboxes: 'Inboxes'
         agent_bot: 'Agent bot'
+        runs: 'Agent runs'
         created_at: 'Created at'
         updated_at: 'Updated at'
     errors:
       models:
         automato_agents/team:
+          restrict_dependent_destroy:
+            has_many: 'Cannot delete: the team has agent runs. Disable it instead of deleting it.'
           attributes:
             inboxes:
               other_account: 'must belong to the same account as the team'
@@ -60,7 +63,12 @@ en:
   automato_agents:
     errors:
       inbox_linked_to_another_bot: "The inbox '%{inbox}' is already linked to another bot. Remove that link before adding the inbox to an agent team."
+    budget_policies:
+      handoff: 'Hand off to humans'
+      cheaper_model: 'Answer with the cheaper model'
+      alert_only: 'Only alert'
     super_admin:
+      provisioning_failed: 'Saved, but provisioning failed: %{errors}'
       team_inboxes:
         none: 'No inboxes'
         empty: 'This account has no inboxes yet.'

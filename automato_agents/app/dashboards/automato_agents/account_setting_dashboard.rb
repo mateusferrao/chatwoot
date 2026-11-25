@@ -18,7 +18,7 @@ class AutomatoAgents::AccountSettingDashboard < Administrate::BaseDashboard
     # decimals typed as text, the input the Super Admin styles (blank budget: no budget)
     monthly_budget_brl: Field::String.with_options(searchable: false),
     usd_brl_rate: Field::String.with_options(searchable: false),
-    budget_policy: Field::Select.with_options(collection: AutomatoAgents::AccountSetting::BUDGET_POLICIES, include_blank: false),
+    budget_policy: AutomatoAgents::BudgetPolicyField,
     created_at: Field::DateTime,
     updated_at: Field::DateTime
   }.freeze

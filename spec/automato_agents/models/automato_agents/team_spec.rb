@@ -179,6 +179,20 @@ RSpec.describe AutomatoAgents::Team do
 
       expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: other_bot.id)
     end
+
+    it 'is refused once the team has runs, keeping the team, its trail, its links and its conversations' do
+      conversation = create(:conversation, account: account, inbox: inbox).reload
+      run = AutomatoAgents::Run.create!(account: account, team: team, conversation: conversation, status: 'succeeded')
+
+      expect(team.destroy).to be(false)
+
+      expect(team.errors[:base]).to include('Cannot delete: the team has agent runs. Disable it instead of deleting it.')
+      expect(described_class.exists?(team.id)).to be(true)
+      expect(AutomatoAgents::Run.exists?(run.id)).to be(true)
+      expect(inbox.reload.agent_bot_inbox).to have_attributes(agent_bot_id: team.reload.agent_bot_id, status: 'active')
+      expect(team.inbox_ids).to eq([inbox.id])
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: team.agent_bot_id)
+    end
   end
 
   describe '#active?' do

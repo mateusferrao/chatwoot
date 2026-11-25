@@ -148,6 +148,16 @@ RSpec.describe AutomatoAgents::AccountSetting do
       expect(AutomatoAgents.enabled_for?(account)).to be(false)
     end
 
+    it 'is not enabled while Dialogflow answers an inbox of an enabled team' do
+      create(:integrations_hook, :dialogflow, account: account, inbox: inbox)
+      setting = build(:automato_agents_account_setting, account: account, enabled: true)
+
+      expect(setting.save).to be(false)
+
+      expect(setting.errors[:base]).to include("#{team.name}: #{inbox.name}: Disconnect Dialogflow before connecting Agent Bot")
+      expect(AutomatoAgents.enabled_for?(account)).to be(false)
+    end
+
     it 'ignores the conflicts of disabled teams' do
       team.update!(enabled: false)
       create(:agent_bot_inbox, inbox: inbox, agent_bot: create(:agent_bot, account: account), account: account)
@@ -155,7 +165,7 @@ RSpec.describe AutomatoAgents::AccountSetting do
       expect(build(:automato_agents_account_setting, account: account, enabled: true)).to be_valid
     end
 
-    it 'deactivates every team when disabled, even after a team fails, and raises that failure' do
+    it 'deactivates every team when disabled, even the one that fails, and raises that failure' do
       other_team = create(:automato_agents_team, account: account, enabled: true)
       other_inbox = create(:inbox, account: account)
       create(:automato_agents_team_inbox, team: other_team, inbox: other_inbox)
@@ -171,6 +181,7 @@ RSpec.describe AutomatoAgents::AccountSetting do
       expect { setting.update!(enabled: false) }.to raise_error(ActiveRecord::RecordInvalid)
 
       expect(other_inbox.reload.agent_bot_inbox).to be_inactive
+      expect(inbox.reload.agent_bot_inbox).to be_inactive
       expect(setting.reload.enabled).to be(false)
     end
   end

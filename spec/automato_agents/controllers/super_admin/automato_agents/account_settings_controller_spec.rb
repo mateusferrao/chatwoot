@@ -52,6 +52,21 @@ RSpec.describe 'Super Admin automato agents account settings', type: :request do
                                        'automato_agents_account_setting[cheaper_model]')
     end
 
+    it 'shows the budget policies by their translated names' do
+      setting = create(:automato_agents_account_setting, account: account, budget_policy: 'cheaper_model')
+
+      get "/super_admin/automato_agents/account_settings/#{setting.id}/edit"
+      expect(response.body).to include('<option selected="selected" value="cheaper_model">Answer with the cheaper model</option>',
+                                       '<option value="handoff">Hand off to humans</option>',
+                                       '<option value="alert_only">Only alert</option>')
+
+      get "/super_admin/automato_agents/account_settings/#{setting.id}"
+      expect(response.body).to include('Answer with the cheaper model')
+
+      get '/super_admin/automato_agents/account_settings'
+      expect(response.body).to include('Answer with the cheaper model')
+    end
+
     it 'offers on the new form only the accounts without a setting' do
       create(:automato_agents_account_setting, account: create(:account, name: 'Já configurada'))
       account
@@ -87,6 +102,27 @@ RSpec.describe 'Super Admin automato agents account settings', type: :request do
 
       expect(response).to redirect_to("/super_admin/automato_agents/account_settings/#{setting.id}")
       expect(inbox.reload.agent_bot_inbox).to be_inactive
+    end
+
+    it 'disables the module through the form even when a team fails, alerting about it' do
+      provisioned_team
+      other_team = create(:automato_agents_team, account: account, enabled: true)
+      other_inbox = create(:inbox, account: account)
+      create(:automato_agents_team_inbox, team: other_team, inbox: other_inbox)
+      setting = create(:automato_agents_account_setting, account: account, enabled: true)
+      expect([inbox, other_inbox].map { |item| item.reload.agent_bot_inbox }).to all(be_active)
+      allow(AutomatoAgents::Teams::ProvisionService).to receive(:new).and_wrap_original do |original, provisioned|
+        raise AutomatoAgents::Teams::InboxBotConflictError, inbox if provisioned.id == team.id
+
+        original.call(provisioned)
+      end
+
+      update_setting(setting, enabled: '0')
+
+      expect(response).to redirect_to("/super_admin/automato_agents/account_settings/#{setting.id}")
+      expect(flash[:error]).to start_with('Saved, but provisioning failed: The inbox &#39;')
+      expect(setting.reload.enabled).to be(false)
+      expect([inbox, other_inbox].map { |item| item.reload.agent_bot_inbox }).to all(be_inactive)
     end
 
     it 'shows the blank required fields and an invalid budget as form errors' do

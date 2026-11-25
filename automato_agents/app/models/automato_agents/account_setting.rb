@@ -50,17 +50,22 @@ class AutomatoAgents::AccountSetting < ApplicationRecord
     end
   end
 
-  # Every team is provisioned even when another one fails, so disabling the account never leaves
-  # a team linked as active because of a problem in another team. The first failure is raised
-  # once all teams are done; the others are logged.
+  # Every team is provisioned even when another one fails, and the links of a team that fails
+  # are made inactive (the safe state), so disabling the account never leaves an active link.
+  # The first failure is raised once all teams are done; the others are logged.
   def provision_teams
     failures = []
     AutomatoAgents::Team.where(account_id: account_id).find_each do |team|
       AutomatoAgents::Teams::ProvisionService.new(team).perform
     rescue StandardError => e
       Rails.logger.error("[AutomatoAgents] provisioning team=#{team.id} failed: #{e.class}: #{e.message}")
+      deactivate_links(team)
       failures << e
     end
     raise failures.first if failures.any?
+  end
+
+  def deactivate_links(team)
+    team.agent_bot_inboxes.active.find_each { |link| link.update!(status: :inactive) }
   end
 end

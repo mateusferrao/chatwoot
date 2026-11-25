@@ -21,6 +21,10 @@ class AutomatoAgents::Team < ApplicationRecord
   has_many :team_inboxes, class_name: 'AutomatoAgents::TeamInbox', dependent: :destroy, inverse_of: :team
   has_many :inboxes, through: :team_inboxes
   has_many :agent_bot_inboxes, primary_key: :agent_bot_id, foreign_key: :agent_bot_id, inverse_of: false, dependent: nil
+  # The runs are the audit trail of the agent (the foreign key would cascade them away): a team
+  # that ran is disabled, not destroyed. Declared before the destroy callbacks so the check runs
+  # first and nothing else happens.
+  has_many :runs, class_name: 'AutomatoAgents::Run', dependent: :restrict_with_error, inverse_of: :team
 
   before_destroy :remove_agent_bot_links
   after_commit :provision, if: :saved_change_to_enabled?, on: [:create, :update]

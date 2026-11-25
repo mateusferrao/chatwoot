@@ -30,11 +30,14 @@ pt_BR:
         enabled: 'Ligada'
         inboxes: 'Caixas de entrada'
         agent_bot: 'Bot'
+        runs: 'Execuções do agente'
         created_at: 'Criada em'
         updated_at: 'Atualizada em'
     errors:
       models:
         automato_agents/team:
+          restrict_dependent_destroy:
+            has_many: 'Não é possível apagar: a equipe tem execuções do agente. Desligue-a em vez de apagá-la.'
           attributes:
             inboxes:
               other_account: 'precisam ser da mesma conta da equipe'
@@ -60,7 +63,12 @@ pt_BR:
   automato_agents:
     errors:
       inbox_linked_to_another_bot: "A caixa de entrada '%{inbox}' já está ligada a outro bot. Remova esse vínculo antes de adicioná-la a uma equipe de agentes."
+    budget_policies:
+      handoff: 'Passar para humanos'
+      cheaper_model: 'Responder com o modelo econômico'
+      alert_only: 'Só alertar'
     super_admin:
+      provisioning_failed: 'Salvo, mas o provisionamento falhou: %{errors}'
       team_inboxes:
         none: 'Nenhuma caixa de entrada'
         empty: 'Esta conta ainda não tem caixas de entrada.'
