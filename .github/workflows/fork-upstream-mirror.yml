@@ -1,0 +1,152 @@
+# Fork Automato: espelho do upstream (chatwoot/chatwoot) em git bundle.
+#
+# Por que existe: se o repositório chatwoot/chatwoot for apagado ou reescrito, o fork
+# precisa continuar podendo se atualizar. Uma vez por semana (ou sob demanda), este
+# workflow guarda uma cópia das branches `develop` e `master` e de todas as tags do
+# upstream como um arquivo .bundle, publicado como Release (pré-lançamento) do NOSSO repo.
+#
+# - O bundle fica em Release, e não em branches do repo, para não empurrar workflows
+#   do upstream para cá (o GITHUB_TOKEN não pode alterar .github/workflows).
+# - Não usa `clone --mirror`: ele traria refs/pull/*, que não interessam.
+# - Se o fetch falhar, o job fica vermelho e nenhuma Release existente é alterada.
+# - Retenção: as 8 Releases `upstream-mirror-*` mais recentes. Nunca toca em outras Releases.
+#
+# Como usar o bundle: docs/fork/independencia-upstream.md
+
+name: Fork - espelho do upstream
+
+on:
+  schedule:
+    - cron: '23 5 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-upstream-mirror
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_URL: https://github.com/chatwoot/chatwoot.git
+  MIRROR_PREFIX: upstream-mirror-
+  MIRROR_RETENTION: 8
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Checkout (só os scripts de ops)
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: ops/scripts
+
+      - name: Buscar develop, master e tags do upstream
+        run: |
+          set -euo pipefail
+          git init --bare "$RUNNER_TEMP/upstream.git"
+          cd "$RUNNER_TEMP/upstream.git"
+          if ! git fetch --no-tags "$UPSTREAM_URL" \
+            '+refs/heads/develop:refs/heads/develop' \
+            '+refs/heads/master:refs/heads/master' \
+            '+refs/tags/*:refs/tags/*'; then
+            echo "::error::Falha ao buscar develop, master e tags de $UPSTREAM_URL. Nenhuma Release foi alterada."
+            exit 1
+          fi
+          if ! git rev-parse --verify --quiet refs/heads/develop >/dev/null; then
+            echo "::error::A branch develop não veio do upstream. Nenhuma Release foi alterada."
+            exit 1
+          fi
+
+      - name: Gerar bundle, checksums e manifesto
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          mkdir -p "$out"
+          cd "$RUNNER_TEMP/upstream.git"
+          git bundle create "$out/chatwoot-upstream.bundle" refs/heads/develop refs/heads/master --tags
+          git bundle verify "$out/chatwoot-upstream.bundle"
+
+          latest_tag="$(git tag --list 'v*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sed -n 1p || true)"
+          {
+            echo "data_utc: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "origem: $UPSTREAM_URL"
+            echo "develop: $(git rev-parse refs/heads/develop)"
+            echo "master: $(git rev-parse refs/heads/master)"
+            echo "tag_semver_mais_recente: ${latest_tag:-nenhuma}"
+            echo "numero_de_tags: $(git tag --list | wc -l | tr -d ' ')"
+            echo "tamanho_do_bundle_bytes: $(stat -c %s "$out/chatwoot-upstream.bundle")"
+          } > "$out/manifest.txt"
+          cat "$out/manifest.txt"
+
+          cd "$out"
+          sha256sum chatwoot-upstream.bundle manifest.txt > SHA256SUMS
+          sha256sum -c SHA256SUMS
+
+      - name: Publicar Release upstream-mirror-AAAA-MM-DD
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/out"
+          base="${MIRROR_PREFIX}$(date -u +%Y-%m-%d)"
+          tag="$base"
+          n=2
+          # Qualquer erro da API conta como "tag não existe"; se não existir de fato, o `gh release create` falha com erro claro.
+          while gh release view "$tag" >/dev/null 2>&1 || gh api "repos/$GH_REPO/git/ref/tags/$tag" >/dev/null 2>&1; do
+            tag="${base}-${n}"
+            n=$((n + 1))
+          done
+
+          cat > "$RUNNER_TEMP/notes.md" <<'NOTES'
+          Espelho do repositório `chatwoot/chatwoot` (branches `develop` e `master` e todas as tags), guardado como git bundle.
+
+          **Para que serve:** atualizar o fork caso o upstream seja apagado ou reescrito. Não é uma versão do app e não gera imagem.
+
+          **Arquivos:**
+          - `chatwoot-upstream.bundle`: o espelho.
+          - `manifest.txt`: data, SHAs de `develop` e `master`, tag mais recente e tamanho.
+          - `SHA256SUMS`: checksums dos dois arquivos acima.
+
+          **Como usar:**
+
+          ```bash
+          gh release download TAG_DA_RELEASE -R mateusferrao/chatwoot
+          sha256sum -c SHA256SUMS
+          ops/scripts/sync-upstream.sh --source chatwoot-upstream.bundle vX.Y.Z
+          ```
+
+          Passo a passo completo: `docs/fork/independencia-upstream.md`.
+          NOTES
+          sed -i "s/TAG_DA_RELEASE/${tag}/" "$RUNNER_TEMP/notes.md"
+
+          gh release create "$tag" \
+            "$out/chatwoot-upstream.bundle" "$out/manifest.txt" "$out/SHA256SUMS" \
+            --target "$GITHUB_SHA" \
+            --title "Espelho do upstream ${tag#"$MIRROR_PREFIX"}" \
+            --notes-file "$RUNNER_TEMP/notes.md" \
+            --prerelease \
+            --latest=false
+          echo "MIRROR_NEW_TAG=$tag" >> "$GITHUB_ENV"
+
+      - name: Aplicar retenção (manter as 8 mais recentes)
+        run: |
+          set -euo pipefail
+          # Ordena pelo nome da tag (data e sufixo), não por createdAt: a data de uma Release no GitHub
+          # é a do commit alvo, que pode ser a mesma para todas. A tag desta execução nunca é apagada.
+          old_tags="$(gh release list --limit 200 --json tagName --jq '.[].tagName' \
+            | ops/scripts/select-mirror-releases-to-delete.sh "$MIRROR_PREFIX" "$MIRROR_RETENTION" "$MIRROR_NEW_TAG")"
+          for old_tag in $old_tags; do
+            case "$old_tag" in
+              "${MIRROR_PREFIX}"*)
+                echo "Apagando Release antiga e sua tag: $old_tag"
+                gh release delete "$old_tag" --cleanup-tag --yes
+                ;;
+              *)
+                echo "::error::Tag inesperada na retenção: $old_tag"
+                exit 1
+                ;;
+            esac
+          done

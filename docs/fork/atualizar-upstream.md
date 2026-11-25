@@ -2,6 +2,8 @@
 
 O fork mantém o **histórico completo** do upstream. Atualizar é um `git merge` da tag nova, automatizado por [`ops/scripts/sync-upstream.sh`](../../ops/scripts/sync-upstream.sh).
 
+Se o `chatwoot/chatwoot` estiver fora do ar ou tiver sido apagado, use `--source <bundle>` com o espelho guardado nas Releases do nosso repo: `ops/scripts/sync-upstream.sh --source chatwoot-upstream.bundle v4.21.0`. Como obter e conferir o bundle: [`independencia-upstream.md`](independencia-upstream.md).
+
 ## Quando atualizar
 
 - Acompanhe as releases em https://github.com/chatwoot/chatwoot/releases.

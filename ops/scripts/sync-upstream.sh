@@ -2,10 +2,17 @@
 # Atualiza o fork para uma nova release do Chatwoot (upstream).
 #
 # Uso (a partir de uma main limpa e atualizada):
+#   ops/scripts/sync-upstream.sh [--source <url-ou-caminho-de-bundle>] <tag>
 #   ops/scripts/sync-upstream.sh v4.21.0
+#   ops/scripts/sync-upstream.sh --source chatwoot-upstream.bundle v4.21.0
+#
+# Sem --source, busca no upstream oficial. Com --source, busca de um arquivo .bundle
+# (espelho guardado pelo workflow "Fork - espelho do upstream") ou de outra URL git;
+# nesse caso o remote 'upstream' não é criado nem alterado.
+# Ver docs/fork/independencia-upstream.md.
 #
 # O que faz:
-#   1. Busca a tag no upstream (github.com/chatwoot/chatwoot), com histórico.
+#   1. Busca a tag no upstream (github.com/chatwoot/chatwoot) ou na fonte de --source, com histórico.
 #   2. Cria a branch sync/upstream-<tag> a partir do HEAD atual.
 #   3. Faz o merge da tag.
 #   4. Resolve sozinho os conflitos previstos:
@@ -19,11 +26,44 @@
 set -euo pipefail
 
 UPSTREAM_URL="https://github.com/chatwoot/chatwoot.git"
-TAG="${1:-}"
+SOURCE=""
+TAG=""
 
-if [[ -z "$TAG" ]]; then
-  echo "Uso: $0 <tag-do-upstream>   (ex.: $0 v4.21.0)" >&2
+usage() {
+  echo "Uso: $0 [--source <url-ou-bundle>] <tag-do-upstream>   (ex.: $0 v4.21.0)" >&2
   exit 1
+}
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --source)
+      [[ $# -ge 2 && -n "$2" ]] || usage
+      SOURCE="$2"
+      shift 2
+      ;;
+    -*)
+      usage
+      ;;
+    *)
+      [[ -z "$TAG" ]] || usage
+      TAG="$1"
+      shift
+      ;;
+  esac
+done
+
+[[ -n "$TAG" ]] || usage
+
+# Fonte aceita: URL git (com "://") ou arquivo bundle. Um arquivo vira caminho absoluto (o script muda de diretório).
+source_is_bundle=false
+if [[ -n "$SOURCE" && "$SOURCE" != *://* ]]; then
+  if [[ ! -f "$SOURCE" ]]; then
+    echo "Erro: --source deve ser o caminho de um arquivo bundle existente ou uma URL git (com ://); não encontrado: $SOURCE" >&2
+    echo "      Diretórios locais e endereços no formato git@host:repo não são suportados." >&2
+    exit 1
+  fi
+  SOURCE="$(cd "$(dirname "$SOURCE")" && pwd)/$(basename "$SOURCE")"
+  source_is_bundle=true
 fi
 
 repo_root="$(git rev-parse --show-toplevel)"
@@ -45,14 +85,23 @@ if [[ "$current_version" == "$TAG" ]]; then
   exit 0
 fi
 
-if ! git remote get-url upstream >/dev/null 2>&1; then
-  echo "Adicionando remote 'upstream' -> $UPSTREAM_URL"
-  git remote add upstream "$UPSTREAM_URL"
+if [[ -n "$SOURCE" ]]; then
+  fetch_from="$SOURCE"
+  if [[ "$source_is_bundle" == true ]]; then
+    echo "==> Verificando o bundle $SOURCE"
+    git bundle verify "$SOURCE" >/dev/null
+  fi
+else
+  if ! git remote get-url upstream >/dev/null 2>&1; then
+    echo "Adicionando remote 'upstream' -> $UPSTREAM_URL"
+    git remote add upstream "$UPSTREAM_URL"
+  fi
+  fetch_from="upstream"
 fi
 
-echo "==> Buscando $TAG no upstream..."
-git fetch --no-tags upstream "refs/tags/${TAG}:refs/tags/${TAG}"
-git fetch --no-tags upstream "refs/tags/${current_version}:refs/tags/${current_version}" 2>/dev/null || true
+echo "==> Buscando $TAG em $fetch_from..."
+git fetch --no-tags "$fetch_from" "refs/tags/${TAG}:refs/tags/${TAG}"
+git fetch --no-tags "$fetch_from" "refs/tags/${current_version}:refs/tags/${current_version}" 2>/dev/null || true
 
 sync_branch="sync/upstream-${TAG}"
 echo "==> Criando branch $sync_branch"
