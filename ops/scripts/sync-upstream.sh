@@ -2,7 +2,7 @@
 # Atualiza o fork para uma nova release do Chatwoot (upstream).
 #
 # Uso (a partir de uma main limpa e atualizada):
-#   ops/scripts/sync-upstream.sh [--source <url-ou-caminho-de-bundle>] <tag>
+#   ops/scripts/sync-upstream.sh [--source <url-ou-caminho-de-bundle>] [--skip-schema] <tag>
 #   ops/scripts/sync-upstream.sh v4.21.0
 #   ops/scripts/sync-upstream.sh --source chatwoot-upstream.bundle v4.21.0
 #
@@ -19,18 +19,27 @@
 #        - caminhos em ops/upstream-sync/removed-paths.txt -> mantém removidos
 #        - caminhos em ops/upstream-sync/ours-paths.txt    -> mantém a versão do fork
 #        - caminhos em ops/upstream-sync/theirs-paths.txt  -> usa a versão do upstream
-#   5. Atualiza ops/UPSTREAM_VERSION e, sem conflitos restantes, cria o commit.
-#   6. Imprime o checklist de revisão (migrations, .env.example, workflows novos...).
+#   5. Se o upstream mexeu em db/schema.rb ou db/migrate (ou o db/schema.rb conflitou),
+#      regenera o db/schema.rb = schema do upstream + migrations do fork
+#      (ops/upstream-sync/fork-migrations.txt) num banco descartável e o confere com
+#      ops/scripts/check-fork-schema.sh (ver ops/scripts/regenerate-fork-schema.sh).
+#      Requer Ruby/gems do projeto e Postgres com pgvector. --skip-schema pula esta etapa
+#      (ex.: sem Postgres); aí o db/schema.rb fica para resolver à mão.
+#   6. Atualiza ops/UPSTREAM_VERSION e, sem conflitos restantes, cria o commit.
+#   7. Imprime o checklist de revisão (schema, migrations, .env.example, workflows novos...).
 #
+# Saídas: 0 = merge commitado; 2 = conflitos para resolver à mão; 3 = falha ao regenerar o
+# db/schema.rb (merge em andamento, sem commit).
 # Nada é enviado ao GitHub: revise, rode os testes e abra um PR da branch gerada.
 set -euo pipefail
 
 UPSTREAM_URL="https://github.com/chatwoot/chatwoot.git"
 SOURCE=""
 TAG=""
+SKIP_SCHEMA=false
 
 usage() {
-  echo "Uso: $0 [--source <url-ou-bundle>] <tag-do-upstream>   (ex.: $0 v4.21.0)" >&2
+  echo "Uso: $0 [--source <url-ou-bundle>] [--skip-schema] <tag-do-upstream>   (ex.: $0 v4.21.0)" >&2
   exit 1
 }
 
@@ -40,6 +49,10 @@ while [[ $# -gt 0 ]]; do
       [[ $# -ge 2 && -n "$2" ]] || usage
       SOURCE="$2"
       shift 2
+      ;;
+    --skip-schema)
+      SKIP_SCHEMA=true
+      shift
       ;;
     -*)
       usage
@@ -73,6 +86,7 @@ removed_list="ops/upstream-sync/removed-paths.txt"
 ours_list="ops/upstream-sync/ours-paths.txt"
 theirs_list="ops/upstream-sync/theirs-paths.txt"
 version_file="ops/UPSTREAM_VERSION"
+schema_file="db/schema.rb"
 
 if [[ -n "$(git status --porcelain)" ]]; then
   echo "Erro: há alterações não commitadas. Faça commit ou stash antes." >&2
@@ -128,10 +142,12 @@ matches_list() {
 echo "==> Fazendo merge de $TAG..."
 git merge --no-ff --no-commit "$TAG" || true
 
-# 1) Conflitos previstos.
+# 1) Conflitos previstos. O db/schema.rb é tratado na etapa do schema, mais abaixo.
 while IFS= read -r path; do
   [[ -z "$path" ]] && continue
-  if matches_list "$path" "$removed_list"; then
+  if [[ "$path" == "$schema_file" ]]; then
+    continue
+  elif matches_list "$path" "$removed_list"; then
     git rm -q -r --cached --ignore-unmatch -- "$path"
     rm -rf -- "$path"
     echo "   resolvido (mantido removido): $path"
@@ -158,15 +174,60 @@ done < <(read_list "$removed_list")
 echo "$TAG" > "$version_file"
 git add "$version_file"
 
-remaining="$(git diff --name-only --diff-filter=U)"
+# 3) db/schema.rb: precisa ser regenerado se conflitou ou se o upstream mexeu no schema
+#    ou em migrations (se a comparação entre as versões falhar, regenera por garantia).
+schema_conflict=false
+if git diff --name-only --diff-filter=U | grep -qxF "$schema_file"; then
+  schema_conflict=true
+fi
+schema_needed=false
+if [[ "$schema_conflict" == true ]] || ! git diff --quiet "$current_version" "$TAG" -- "$schema_file" db/migrate 2>/dev/null; then
+  schema_needed=true
+fi
+schema_regenerated=false
+
+remaining="$(git diff --name-only --diff-filter=U | grep -vxF "$schema_file" || true)"
 if [[ -n "$remaining" ]]; then
   echo
   echo "!! Conflitos que precisam de resolução manual:"
   printf '   %s\n' $remaining
   echo
+  if [[ "$schema_needed" == true ]]; then
+    echo "!! O db/schema.rb também precisa ser regenerado. Depois de resolver os conflitos acima, rode:"
+    echo "   ops/scripts/regenerate-fork-schema.sh ${TAG}"
+    echo
+  fi
   echo "Resolva, rode 'git add <arquivos>' e finalize com:"
   echo "   git commit -m \"chore(upstream): merge chatwoot ${TAG}\""
   exit 2
+fi
+
+if [[ "$schema_needed" == true && "$SKIP_SCHEMA" == true ]]; then
+  echo
+  echo "!! --skip-schema: o db/schema.rb NÃO foi regenerado com as tabelas do fork. Resolva à mão antes do PR:"
+  echo "   ops/scripts/regenerate-fork-schema.sh ${TAG}"
+  if [[ "$schema_conflict" == true ]]; then
+    echo
+    echo "!! Conflitos que precisam de resolução manual:"
+    echo "   $schema_file"
+    echo
+    echo "Depois finalize com:"
+    echo "   git commit -m \"chore(upstream): merge chatwoot ${TAG}\""
+    exit 2
+  fi
+elif [[ "$schema_needed" == true ]]; then
+  echo "==> O upstream mexeu no schema: regenerando db/schema.rb com as tabelas do fork..."
+  if ! "ops/scripts/regenerate-fork-schema.sh" "$TAG"; then
+    echo
+    echo "!! Falha ao regenerar o db/schema.rb (veja o erro acima). O merge segue em andamento, sem commit."
+    echo "   Corrija o ambiente (Postgres, Ruby, bundle install) e rode:"
+    echo "   ops/scripts/regenerate-fork-schema.sh ${TAG}"
+    echo "   git commit -m \"chore(upstream): merge chatwoot ${TAG}\""
+    echo "   Sem Postgres? Resolva o db/schema.rb à mão (schema do upstream + tabelas do fork) e"
+    echo "   confira depois com ops/scripts/check-fork-schema.sh."
+    exit 3
+  fi
+  schema_regenerated=true
 fi
 
 git commit -q -m "chore(upstream): merge chatwoot ${TAG}"
@@ -176,6 +237,16 @@ echo
 echo "================ CHECKLIST DE REVISÃO ================"
 echo "Release notes: https://github.com/chatwoot/chatwoot/releases/tag/${TAG}"
 echo
+if [[ "$schema_regenerated" == true ]]; then
+  echo "-- db/schema.rb REGENERADO (schema do upstream ${TAG} + migrations do fork) e conferido."
+  echo "   REVISE o diff contra o upstream; deve mostrar só a versão e as tabelas/chaves do fork:"
+  echo "   git diff ${TAG} -- ${schema_file}"
+  echo
+elif [[ "$schema_needed" == true ]]; then
+  echo "-- !! db/schema.rb NÃO regenerado (--skip-schema). Antes do PR rode:"
+  echo "   ops/scripts/regenerate-fork-schema.sh ${TAG}   (e faça commit do db/schema.rb)"
+  echo
+fi
 echo "-- Migrations novas (rodam no deploy via db:chatwoot_prepare):"
 git diff --name-only "$current_version" "$TAG" -- db/migrate | sed 's/^/   /' || true
 echo

@@ -68,6 +68,9 @@ ops/scripts/sync-upstream.sh v4.21.0
 # Idem, a partir do espelho em bundle (se o upstream estiver fora do ar)
 ops/scripts/sync-upstream.sh --source chatwoot-upstream.bundle v4.21.0
 
+# Conferir se o db/schema.rb tem as tabelas do fork (Postgres local; também roda no CI)
+ops/scripts/check-fork-schema.sh
+
 # Aplicar a marca (no container, depois do primeiro deploy; LOGO_* são opcionais)
 BRAND_NAME="Automato" BRAND_URL="https://automato.pro" LOGO_URL="https://.../logo.svg" bundle exec rails fork:branding:apply
 ```
