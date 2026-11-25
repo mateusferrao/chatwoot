@@ -51,13 +51,13 @@ MANIFEST
   }
 }
 JSON
-  cat > "$root/pnpm-lock.yaml" <<'YAML'
+  cat > "$root/pnpm-lock.yaml" <<YAML
 lockfileVersion: '9.0'
 
 packages:
 
   '@chatwoot/x@1.0.0':
-    resolution: {integrity: sha512-abc==}
+    resolution: {integrity: $hash}
 
 snapshots:
 
@@ -150,6 +150,20 @@ p="$work/check-stale"; make_project "$p"
 sed -i "s/@chatwoot\/x@1.0.0'/@chatwoot\/x@1.1.0'/" "$p/pnpm-lock.yaml"
 run "$p" --check > "$work/check.out"; status=$?
 check "--check falha quando o lockfile usa versão diferente da cópia" "1" "$status"
+
+p="$work/check-swapped"; make_project "$p"
+echo "tarball trocado" > "$p/vendor/fork-mirror/npm/chatwoot-x-1.0.0.tgz"
+new_hash="sha512-$(openssl dgst -sha512 -binary "$p/vendor/fork-mirror/npm/chatwoot-x-1.0.0.tgz" | base64 | tr -d '\n')"
+sed -i -E "s|sha512-[^ ]+|$new_hash|" "$p/vendor/fork-mirror/MANIFEST.txt"
+sed -i -E "s|integrity: sha512-[^}]+|integrity: sha512-original==|" "$p/pnpm-lock.yaml"
+run "$p" --check > "$work/check.out"; status=$?
+check "--check falha com tarball trocado e MANIFEST editado para bater (lockfile manda)" "1" "$status"
+
+p="$work/apply-dq"; make_project "$p"
+sed -i "s|gem 'twitty', '~> 0.1.5'|gem \"twitty\", '~> 0.1.5'|" "$p/Gemfile"
+run "$p" > "$work/apply.out"; status=$?
+check "aplicar falha alto quando a linha da gem não usa aspas simples" "1" "$status"
+check "aplicar falho não alterou o package.json" "0" "$(grep -c 'file:' "$p/package.json")"
 
 p="$work/apply-missing"; make_project "$p"
 rm -r "$p/vendor/fork-mirror/gems/ai-agents-0.14.0"

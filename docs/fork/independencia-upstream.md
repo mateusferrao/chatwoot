@@ -86,7 +86,7 @@ Revise o diff (`git diff package.json Gemfile Gemfile.lock`), faça commit e abr
 O workflow **Fork - imagem CE** tem o job **Build com pacotes da Chatwoot indisponíveis**. Ele aplica o modo de emergência, bloqueia o escopo `@chatwoot` do npm (`@chatwoot:registry=http://127.0.0.1:9/`, inclusive dentro do build da imagem), confere que `ai-agents` e `twitty` estão em seções `PATH` do `Gemfile.lock` e compila a imagem, **sem publicar**. Roda:
 
 - automaticamente em PR que altera `vendor/fork-mirror/**` ou os scripts `*vendored*`;
-- manualmente: Actions > **Fork - imagem CE** > Run workflow com **testar_emergencia** marcado. Atenção: o disparo manual também roda o job `build` normal, que publica a imagem como sempre.
+- manualmente: Actions > **Fork - imagem CE** > Run workflow com **testar_emergencia** marcado. Nesse disparo o job `build` normal **não roda**: o ensaio não publica nada.
 
 Rode esse job de tempos em tempos (e após atualizar o upstream) para garantir que o plano B continua funcionando. O teste local do script (`bash ops/scripts/tests/use-vendored-packages.test.sh`) é offline.
 

@@ -67,13 +67,21 @@ verify_mirror() {
   done < <(manifest_entries)
 
   # Todo pacote do escopo precisa estar na cópia, na versão que o lockfile usa hoje.
-  local lock_name lock_version lock_integrity gem_name lock_gem_version found
+  local lock_name lock_version lock_integrity lock_tarball gem_name lock_gem_version found
   while read -r lock_name lock_version lock_integrity; do
     found=0
     for entry in "${npm_packages[@]}"; do
       if [[ "$entry" == "$lock_name $lock_version" ]]; then found=1; fi
     done
-    [[ "$found" -eq 1 ]] || problem "@chatwoot/$lock_name@$lock_version (pnpm-lock.yaml) não está em vendor/fork-mirror/; rode refresh-vendored-packages.sh"
+    if [[ "$found" -eq 0 ]]; then
+      problem "@chatwoot/$lock_name@$lock_version (pnpm-lock.yaml) não está em vendor/fork-mirror/; rode refresh-vendored-packages.sh"
+    else
+      # Com o lockfile ainda no registro, o tarball precisa bater com o integrity DELE (não só com o MANIFEST).
+      lock_tarball="$mirror/npm/$(npm_tarball_name "$lock_name" "$lock_version")"
+      if [[ -f "$lock_tarball" && "$(npm_integrity_of "$lock_tarball")" != "$lock_integrity" ]]; then
+        problem "$lock_tarball não bate com o integrity do pnpm-lock.yaml"
+      fi
+    fi
   done < <(lockfile_npm_packages)
   for gem_name in "${VENDORED_GEMS[@]}"; do
     lock_gem_version="$(lockfile_gem_version "$gem_name")"
@@ -125,6 +133,13 @@ apply_gem_paths() {
     sed -i.bak -E "s|^gem '${gem_name}'.*$|gem '${gem_name}', path: 'vendor/fork-mirror/gems/$(gem_dir_name "$gem_name" "$version")'|" Gemfile
   done
   rm -f Gemfile.bak
+  for entry in "${gem_packages[@]}"; do
+    gem_name="${entry% *}"; version="${entry#* }"
+    if ! grep -qxF "gem '${gem_name}', path: 'vendor/fork-mirror/gems/$(gem_dir_name "$gem_name" "$version")'" Gemfile; then
+      echo "ERRO: não consegui reescrever a linha da gem ${gem_name} no Gemfile (esperava aspas simples: gem '${gem_name}', ...). Edite à mão e rode bundle lock --local." >&2
+      exit 1
+    fi
+  done
   bundle lock --local
 }
 
@@ -161,8 +176,8 @@ if [[ "$mode" == "check" ]]; then
 fi
 
 echo "Aplicando o modo de emergência (pacotes da Chatwoot Inc. vindos de vendor/fork-mirror/)..."
-apply_npm_overrides
 apply_gem_paths
+apply_npm_overrides
 if [[ -n "$dockerfile_out" ]]; then
   write_derived_dockerfile
 fi

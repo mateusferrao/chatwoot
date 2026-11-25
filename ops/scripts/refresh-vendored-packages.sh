@@ -41,6 +41,8 @@ cat > "$new_manifest" <<'HEADER'
 HEADER
 
 expected_npm_files=()
+staged_npm_files=()   # baixados e conferidos em $work; só entram na cópia no fim, se tudo conferir
+staged_gem_dirs=()
 while read -r name version integrity; do
   file_name="$(npm_tarball_name "$name" "$version")"
   target="$mirror/npm/$file_name"
@@ -53,10 +55,10 @@ while read -r name version integrity; do
     echo "npm  @chatwoot/$name $version: baixando..."
     download "$origin" "$work/$file_name"
     if [[ "$(npm_integrity_of "$work/$file_name")" != "$integrity" ]]; then
-      echo "ERRO: @chatwoot/$name@$version não bate com o integrity do pnpm-lock.yaml; nada foi gravado." >&2
+      echo "ERRO: @chatwoot/$name@$version não bate com o integrity do pnpm-lock.yaml; nada foi gravado na cópia." >&2
       exit 1
     fi
-    mv "$work/$file_name" "$target"
+    staged_npm_files+=("$file_name")
   fi
   echo "npm @chatwoot/$name $version $origin $integrity $(previous_date npm "@chatwoot/$name" "$version" "$integrity" | grep . || echo "$today")" >> "$new_manifest"
 done < <(lockfile_npm_packages)
@@ -92,15 +94,23 @@ for gem_name in "${VENDORED_GEMS[@]}"; do
     echo "gem  $gem_name $version: baixando..."
     download "$origin" "$work/$dir_name.gem"
     if [[ "$(openssl dgst -sha256 "$work/$dir_name.gem" | awk '{print $NF}')" != "$expected_sha" ]]; then
-      echo "ERRO: $dir_name.gem não bate com o sha256 da API do RubyGems; nada foi gravado." >&2
+      echo "ERRO: $dir_name.gem não bate com o sha256 da API do RubyGems; nada foi gravado na cópia." >&2
       exit 1
     fi
     gem unpack "$work/$dir_name.gem" --target="$work/unpacked" > /dev/null
     gem spec --ruby "$work/$dir_name.gem" > "$work/unpacked/$dir_name/$gem_name.gemspec"
-    rm -rf "$target"
-    mv "$work/unpacked/$dir_name" "$target"
+    staged_gem_dirs+=("$dir_name")
   fi
   echo "gem $gem_name $version $origin $hash $(previous_date gem "$gem_name" "$version" "$hash" | grep . || echo "$today")" >> "$new_manifest"
+done
+
+# Tudo conferiu: agora sim grava na cópia.
+for staged in "${staged_npm_files[@]+"${staged_npm_files[@]}"}"; do
+  mv "$work/$staged" "$mirror/npm/$staged"
+done
+for staged in "${staged_gem_dirs[@]+"${staged_gem_dirs[@]}"}"; do
+  rm -rf "$mirror/gems/$staged"
+  mv "$work/unpacked/$staged" "$mirror/gems/$staged"
 done
 
 # Remove o que não está mais no lockfile.

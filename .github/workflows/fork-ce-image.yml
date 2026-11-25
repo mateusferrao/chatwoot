@@ -43,6 +43,8 @@ concurrency:
 
 jobs:
   build:
+    # O ensaio de emergência (dispatch com testar_emergencia) nunca publica nada.
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.testar_emergencia) }}
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -109,6 +111,8 @@ jobs:
   escopo-emergencia:
     name: Decidir se o build de emergência se aplica
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.testar_emergencia)
     outputs:
       rodar: ${{ steps.decidir.outputs.rodar }}
@@ -133,6 +137,8 @@ jobs:
   build-emergencia:
     name: Build com pacotes da Chatwoot indisponíveis
     needs: escopo-emergencia
+    permissions:
+      contents: read
     if: needs.escopo-emergencia.outputs.rodar == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 90
