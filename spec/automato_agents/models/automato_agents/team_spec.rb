@@ -101,6 +101,86 @@ RSpec.describe AutomatoAgents::Team do
     end
   end
 
+  describe 'conflicts with the inbox bot' do
+    let(:inbox) { create(:inbox, account: account) }
+
+    before do
+      create(:automato_agents_team_inbox, team: team, inbox: inbox)
+      create(:automato_agents_account_setting, account: account, enabled: true)
+      # read again, as the forms do: the team was created with its inboxes loaded empty
+      team.reload
+    end
+
+    it 'is not enabled while an inbox is linked to another bot, leaving that link alone' do
+      other_bot = create(:agent_bot, account: account)
+      # enabling the account linked the inbox to the team bot as inactive; another bot takes it over
+      inbox.agent_bot_inbox.update!(agent_bot: other_bot)
+
+      expect(team.update(enabled: true)).to be(false)
+
+      expect(team.errors[:base]).to include("The inbox '#{inbox.name}' is already linked to another bot. " \
+                                            'Remove that link before adding the inbox to an agent team.')
+      expect(team.reload.enabled).to be(false)
+      expect(inbox.reload.agent_bot_inbox.agent_bot_id).to eq(other_bot.id)
+    end
+
+    it 'is not enabled while Dialogflow answers an inbox' do
+      AutomatoAgents::Teams::ProvisionService.new(team).perform
+      create(:integrations_hook, :dialogflow, account: account, inbox: inbox)
+
+      expect(team.update(enabled: true)).to be(false)
+
+      expect(team.errors[:base]).to include("#{inbox.name}: Disconnect Dialogflow before connecting Agent Bot")
+      expect(team.reload.enabled).to be(false)
+      expect(inbox.reload.agent_bot_inbox).to be_inactive
+    end
+
+    it 'is always disabled, even while an inbox is linked to another bot' do
+      team.update!(enabled: true)
+      other_bot = create(:agent_bot, account: account)
+      inbox.reload.agent_bot_inbox.update!(agent_bot: other_bot)
+
+      expect(team.update(enabled: false)).to be(true)
+    end
+
+    it 'is not checked while the account is disabled' do
+      AutomatoAgents::AccountSetting.for(account).update!(enabled: false)
+      inbox.agent_bot_inbox.update!(agent_bot: create(:agent_bot, account: account))
+
+      expect(team.update(enabled: true)).to be(true)
+    end
+  end
+
+  describe 'destroying the team' do
+    let(:inbox) { create(:inbox, account: account) }
+
+    before do
+      create(:automato_agents_team_inbox, team: team, inbox: inbox)
+      create(:automato_agents_account_setting, account: account, enabled: true)
+      team.update!(enabled: true)
+    end
+
+    it 'hands the conversations pending on the team bot off to humans' do
+      conversation = create(:conversation, account: account, inbox: inbox).reload
+      expect(conversation).to have_attributes(status: 'pending', assignee_agent_bot_id: team.reload.agent_bot_id)
+
+      team.destroy!
+
+      expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil, ai_assignee_type: nil)
+      expect(conversation.waiting_since).to be_present
+    end
+
+    it 'does not touch conversations pending on another bot' do
+      other_bot = create(:agent_bot, account: account)
+      conversation = create(:conversation, account: account, inbox: inbox).reload
+      conversation.update!(ai_assignee: other_bot)
+
+      team.destroy!
+
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: other_bot.id)
+    end
+  end
+
   describe '#active?' do
     it 'is true only when the team and the account are enabled' do
       team.update!(enabled: true)

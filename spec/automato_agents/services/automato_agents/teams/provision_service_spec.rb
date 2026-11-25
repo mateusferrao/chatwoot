@@ -69,19 +69,43 @@ RSpec.describe AutomatoAgents::Teams::ProvisionService do
       expect(unrelated_inbox.reload.agent_bot_inbox.agent_bot_id).to eq(other_bot.id)
     end
 
-    it 'raises a conflict error instead of taking over an inbox linked to another bot' do
+    it 'raises a conflict error instead of taking over an inbox linked to another bot when the team is active' do
+      enable_module
       other_bot = create(:agent_bot, account: account)
-      create(:agent_bot_inbox, inbox: inbox, agent_bot: other_bot, account: account)
+      inbox.reload.agent_bot_inbox.update!(agent_bot: other_bot)
 
       expect { described_class.new(team).perform }.to raise_error(AutomatoAgents::Teams::InboxBotConflictError, /is already linked to another bot/)
       expect(inbox.reload.agent_bot_inbox.agent_bot_id).to eq(other_bot.id)
+    end
+
+    it 'exposes the conflicting inbox on the error, for the forms' do
+      error = AutomatoAgents::Teams::InboxBotConflictError.new(inbox)
+
+      expect(error.inbox).to eq(inbox)
+    end
+
+    it 'skips an inbox linked to another bot while the team is not active and deactivates the other links' do
+      other_inbox = create(:inbox, account: account)
+      create(:automato_agents_team_inbox, team: team, inbox: other_inbox)
+      enable_module
+      other_bot = create(:agent_bot, account: account)
+      inbox.reload.agent_bot_inbox.update!(agent_bot: other_bot)
+
+      team.update!(enabled: false)
+
+      expect(inbox.reload.agent_bot_inbox).to have_attributes(agent_bot_id: other_bot.id, status: 'active')
+      expect(other_inbox.reload.agent_bot_inbox).to have_attributes(agent_bot_id: team.reload.agent_bot_id, status: 'inactive')
     end
 
     it 'propagates the validation error when an active team meets a Dialogflow hook' do
       create(:integrations_hook, :dialogflow, account: account, inbox: inbox)
       create(:automato_agents_account_setting, account: account, enabled: true)
 
-      expect { team.update!(enabled: true) }.to raise_error(ActiveRecord::RecordInvalid, /Dialogflow/)
+      described_class.new(team).perform
+      team.enabled = true
+
+      # Team validations reject this before saving; skipped so the service itself is reached
+      expect { team.save!(validate: false) }.to raise_error(ActiveRecord::RecordInvalid, /Dialogflow/)
       expect(inbox.reload.agent_bot_inbox).to be_inactive
     end
 

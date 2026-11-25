@@ -31,6 +31,10 @@ class AutomatoAgents::AccountSetting < ApplicationRecord
   validates :usd_brl_rate, numericality: { greater_than: 0 }
   # nil: no budget
   validates :monthly_budget_brl, numericality: { greater_than_or_equal_to: 0 }, allow_nil: true
+  validates :default_model, :cheaper_model, :fallback_message, :budget_exceeded_message, presence: true
+  # Checked before the module is enabled, so the teams are never left enabled with their links
+  # inactive. Disabling is not checked: it must always work.
+  validate :teams_servable, if: -> { enabled? && will_save_change_to_enabled? }
 
   after_commit :provision_teams, if: :saved_change_to_enabled?, on: [:create, :update]
 
@@ -40,9 +44,23 @@ class AutomatoAgents::AccountSetting < ApplicationRecord
 
   private
 
+  def teams_servable
+    AutomatoAgents::Team.where(account_id: account_id, enabled: true).includes(inboxes: :agent_bot_inbox).find_each do |team|
+      team.serving_conflicts.each { |conflict| errors.add(:base, "#{team.name}: #{conflict}") }
+    end
+  end
+
+  # Every team is provisioned even when another one fails, so disabling the account never leaves
+  # a team linked as active because of a problem in another team. The first failure is raised
+  # once all teams are done; the others are logged.
   def provision_teams
+    failures = []
     AutomatoAgents::Team.where(account_id: account_id).find_each do |team|
       AutomatoAgents::Teams::ProvisionService.new(team).perform
+    rescue StandardError => e
+      Rails.logger.error("[AutomatoAgents] provisioning team=#{team.id} failed: #{e.class}: #{e.message}")
+      failures << e
     end
+    raise failures.first if failures.any?
   end
 end

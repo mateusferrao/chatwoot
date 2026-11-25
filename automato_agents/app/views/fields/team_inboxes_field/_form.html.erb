@@ -1,0 +1,28 @@
+<%# Classes used here must also appear in a file Tailwind scans (tailwind.config.js does not list automato_agents/). %>
+<% inboxes_by_account = field.candidate_inboxes_by_account %>
+<%= render "field", f: f, field: field, wide: true do %>
+  <%= hidden_field_tag "#{f.object_name}[inbox_ids][]", "", id: nil %>
+  <% if inboxes_by_account.empty? %>
+    <p class="text-label-small text-n-slate-11"><%= t("automato_agents.super_admin.team_inboxes.empty") %></p>
+  <% end %>
+  <div class="space-y-3">
+    <% inboxes_by_account.each do |account, inboxes| %>
+      <fieldset>
+        <% if f.object.account_id.blank? %>
+          <legend class="text-label-small text-n-slate-11"><%= account.name %></legend>
+        <% end %>
+        <div class="mt-1 grid gap-2 sm:grid-cols-2">
+          <% inboxes.each do |inbox| %>
+            <%= render "check_tile", label: inbox.name do %>
+              <%= check_box_tag "#{f.object_name}[inbox_ids][]", inbox.id, field.selected_ids.include?(inbox.id),
+                                id: "#{f.object_name}_inbox_ids_#{inbox.id}", class: ui(:checkbox) %>
+            <% end %>
+          <% end %>
+        </div>
+      </fieldset>
+    <% end %>
+  </div>
+  <% if f.object.account_id.blank? %>
+    <p class="mt-2 text-label-small text-n-slate-11"><%= t("automato_agents.super_admin.team_inboxes.hint") %></p>
+  <% end %>
+<% end %>

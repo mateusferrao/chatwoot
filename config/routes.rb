@@ -841,6 +841,11 @@ Rails.application.routes.draw do
         delete :avatar, on: :member, action: :destroy_avatar
       end
       resources :platform_apps, only: [:index, :new, :create, :show, :edit, :update, :destroy]
+      # Automato fork: AI agents layer (automato_agents/)
+      namespace :automato_agents do
+        resources :account_settings, only: [:index, :new, :create, :show, :edit, :update]
+        resources :teams
+      end
       resources :platform_banners
       resource :instance_status, only: [:show]
 

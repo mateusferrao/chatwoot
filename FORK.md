@@ -39,6 +39,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | Workflow **Fork - espelho do upstream** | Guarda semanalmente um git bundle do upstream em Releases do nosso repo, para o fork poder se atualizar se o `chatwoot/chatwoot` sumir ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
 | `vendor/fork-mirror/` | Cópia dos pacotes `@chatwoot/*` (npm) e das gems `ai-agents` e `twitty`, publicados pela Chatwoot Inc.; permite gerar a imagem se forem despublicados ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
 | `automato_agents/` + 2 linhas em `config/application.rb` | Camada de agentes de IA (namespace `AutomatoAgents`), carregada como o `enterprise/`; nasce desligada por conta ([`automato_agents/README.md`](automato_agents/README.md)) |
+| Super Admin → **Contas com agentes de IA** e **Equipes de agentes** (`automato_agents/app/controllers/super_admin/`) + linhas em `config/routes.rb`, `app/helpers/super_admin/navigation_helper.rb` e `app/helpers/super_admin/command_bar_helper.rb` | Ligar o módulo por conta, configurá-lo e montar equipes sem console (o Easypanel não executa comandos em serviços App) |
 | `ops/` e `docs/fork/` | Ferramentas e documentação próprias do fork |
 
 Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da edição CE em todo PR.

@@ -1,0 +1,67 @@
+# Automato fork: texts of the AI agents layer (automato_agents/). Kept out of en.yml so the
+# upstream locale files stay untouched.
+en:
+  activerecord:
+    models:
+      automato_agents/account_setting:
+        one: 'AI agents account'
+        other: 'AI agents accounts'
+      automato_agents/team:
+        one: 'Agent team'
+        other: 'Agent teams'
+    attributes:
+      automato_agents/account_setting:
+        account: 'Account'
+        account_id: 'Account'
+        enabled: 'Agents module enabled'
+        default_model: 'Default model'
+        cheaper_model: 'Cheaper model'
+        fallback_message: 'Fallback message'
+        budget_exceeded_message: 'Budget exceeded message'
+        monthly_budget_brl: 'Monthly budget (BRL)'
+        usd_brl_rate: 'USD to BRL rate'
+        budget_policy: 'Budget policy'
+        created_at: 'Created at'
+        updated_at: 'Updated at'
+      automato_agents/team:
+        account: 'Account'
+        account_id: 'Account'
+        name: 'Name'
+        enabled: 'Enabled'
+        inboxes: 'Inboxes'
+        agent_bot: 'Agent bot'
+        created_at: 'Created at'
+        updated_at: 'Updated at'
+    errors:
+      models:
+        automato_agents/team:
+          attributes:
+            inboxes:
+              other_account: 'must belong to the same account as the team'
+        automato_agents/team_inbox:
+          attributes:
+            inbox:
+              other_account: 'must belong to the same account as the team'
+            inbox_id:
+              taken: 'is already in another agent team'
+  helpers:
+    label:
+      automato_agents__account_setting:
+        account: 'Account'
+        enabled: 'Enabled'
+        default_model: 'Default model'
+        budget_policy: 'Budget policy'
+        monthly_budget_brl: 'Monthly budget'
+      automato_agents__team:
+        account: 'Account'
+        name: 'Name'
+        enabled: 'Enabled'
+        inboxes: 'Inboxes'
+  automato_agents:
+    errors:
+      inbox_linked_to_another_bot: "The inbox '%{inbox}' is already linked to another bot. Remove that link before adding the inbox to an agent team."
+    super_admin:
+      team_inboxes:
+        none: 'No inboxes'
+        empty: 'This account has no inboxes yet.'
+        hint: 'Pick inboxes of the team account only.'

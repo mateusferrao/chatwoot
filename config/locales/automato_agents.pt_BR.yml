@@ -1,0 +1,67 @@
+# Fork Automato: textos da camada de agentes de IA (automato_agents/). Fora do pt_BR.yml para não
+# alterar os arquivos de locale do upstream.
+pt_BR:
+  activerecord:
+    models:
+      automato_agents/account_setting:
+        one: 'Conta com agentes de IA'
+        other: 'Contas com agentes de IA'
+      automato_agents/team:
+        one: 'Equipe de agentes'
+        other: 'Equipes de agentes'
+    attributes:
+      automato_agents/account_setting:
+        account: 'Conta'
+        account_id: 'Conta'
+        enabled: 'Módulo de agentes ligado'
+        default_model: 'Modelo padrão'
+        cheaper_model: 'Modelo econômico'
+        fallback_message: 'Mensagem em caso de falha'
+        budget_exceeded_message: 'Mensagem de orçamento estourado'
+        monthly_budget_brl: 'Orçamento mensal (R$)'
+        usd_brl_rate: 'Câmbio do dólar (R$)'
+        budget_policy: 'Política ao estourar o orçamento'
+        created_at: 'Criado em'
+        updated_at: 'Atualizado em'
+      automato_agents/team:
+        account: 'Conta'
+        account_id: 'Conta'
+        name: 'Nome'
+        enabled: 'Ligada'
+        inboxes: 'Caixas de entrada'
+        agent_bot: 'Bot'
+        created_at: 'Criada em'
+        updated_at: 'Atualizada em'
+    errors:
+      models:
+        automato_agents/team:
+          attributes:
+            inboxes:
+              other_account: 'precisam ser da mesma conta da equipe'
+        automato_agents/team_inbox:
+          attributes:
+            inbox:
+              other_account: 'precisa ser da mesma conta da equipe'
+            inbox_id:
+              taken: 'já está em outra equipe de agentes'
+  helpers:
+    label:
+      automato_agents__account_setting:
+        account: 'Conta'
+        enabled: 'Ligado'
+        default_model: 'Modelo padrão'
+        budget_policy: 'Política'
+        monthly_budget_brl: 'Orçamento mensal'
+      automato_agents__team:
+        account: 'Conta'
+        name: 'Nome'
+        enabled: 'Ligada'
+        inboxes: 'Caixas de entrada'
+  automato_agents:
+    errors:
+      inbox_linked_to_another_bot: "A caixa de entrada '%{inbox}' já está ligada a outro bot. Remova esse vínculo antes de adicioná-la a uma equipe de agentes."
+    super_admin:
+      team_inboxes:
+        none: 'Nenhuma caixa de entrada'
+        empty: 'Esta conta ainda não tem caixas de entrada.'
+        hint: 'Escolha só caixas de entrada da conta da equipe.'

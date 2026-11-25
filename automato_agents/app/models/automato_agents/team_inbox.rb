@@ -25,6 +25,6 @@ class AutomatoAgents::TeamInbox < ApplicationRecord
   def inbox_belongs_to_team_account
     return if inbox.blank? || team.blank? || inbox.account_id == team.account_id
 
-    errors.add(:inbox, 'must belong to the same account as the team')
+    errors.add(:inbox, :other_account)
   end
 end

@@ -33,12 +33,20 @@ class AutomatoAgents::Teams::ProvisionService
     @team.agent_bot_inboxes.where.not(inbox_id: @team.inbox_ids).destroy_all
   end
 
+  # The link of another bot is never taken over. An active team cannot serve that inbox, so it
+  # fails (Team validations reject it before saving); an inactive one skips it, so disabling the
+  # team or the account always deactivates every link of the team bot.
   def attach_team_inboxes
-    status = @team.active? ? :active : :inactive
+    active = @team.active?
     @team.inboxes.each do |inbox|
+      if @team.linked_to_another_bot?(inbox)
+        raise AutomatoAgents::Teams::InboxBotConflictError, inbox if active
+
+        next
+      end
+
       agent_bot_inbox = inbox.agent_bot_inbox || AgentBotInbox.new(inbox: inbox)
-      ensure_not_linked_to_another_bot(agent_bot_inbox)
-      agent_bot_inbox.update!(agent_bot: @team.agent_bot, status: status)
+      agent_bot_inbox.update!(agent_bot: @team.agent_bot, status: active ? :active : :inactive)
     end
   end
 
@@ -46,19 +54,8 @@ class AutomatoAgents::Teams::ProvisionService
   # their inbox (team or account disabled, inbox removed from the team). Runs after the
   # transaction so the handoff events are dispatched for committed state.
   def hand_off_unserved_conversations
-    conversations = Conversation.pending.where(
-      account_id: @team.account_id,
-      ai_assignee_type: 'AgentBot',
-      assignee_agent_bot_id: @team.agent_bot_id
-    )
+    conversations = @team.pending_bot_conversations
     conversations = conversations.where.not(inbox_id: @team.inbox_ids) if @team.active?
     conversations.find_each(&:bot_handoff!)
-  end
-
-  def ensure_not_linked_to_another_bot(agent_bot_inbox)
-    other_bot_id = agent_bot_inbox.agent_bot_id
-    return if other_bot_id.blank? || other_bot_id == @team.agent_bot_id
-
-    raise AutomatoAgents::Teams::InboxBotConflictError, agent_bot_inbox.inbox
   end
 end
