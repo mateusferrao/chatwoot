@@ -61,7 +61,23 @@ RSpec.describe AutomatoAgents::Turn do
     expect(run).to have_attributes(status: 'failed', error_class: error_class, finished_at: be_present)
     expect(run.steps.map(&:kind)).to eq(['error'])
     expect(bot_replies.map(&:content)).to eq([fallback_message])
-    expect(conversation.reload).to have_attributes(status: 'open', ai_assignee: nil, assignee_agent_bot_id: nil)
+    expect(conversation.reload).to have_attributes(status: 'open', ai_assignee: nil, assignee_agent_bot_id: nil, waiting_since: be_present)
+  end
+
+  # Answers every OpenRouter request; the first one also runs the given block, as if it
+  # happened while the agent was thinking.
+  def stub_completion_while_thinking(status: 200)
+    calls = 0
+    stub_request(:post, completions_url).to_return do
+      calls += 1
+      yield if calls == 1
+      { status: status, body: (status == 200 ? response_body : { error: { message: 'upstream down' } }).to_json,
+        headers: { 'Content-Type' => 'application/json' } }
+    end
+  end
+
+  def human_takes_over
+    Conversations::AssignmentService.new(conversation: Conversation.find(conversation.id), assignee_id: create(:user, account: account).id).perform
   end
 
   describe 'answering the customer' do
@@ -150,6 +166,55 @@ RSpec.describe AutomatoAgents::Turn do
     end
   end
 
+  describe 'messages that arrive during a turn' do
+    it 'answers them in the next turn instead of dropping them' do
+      stub_completion_while_thinking { deliver('E no domingo?') }
+
+      deliver('Vocês abrem no sábado?')
+      run_scheduled_turns
+      run_scheduled_turns
+
+      expect(bot_replies.count).to eq(2)
+      expect(AutomatoAgents::Run.order(:id).map(&:status)).to eq(%w[succeeded succeeded])
+      expect(a_request(:post, completions_url).with { |req| user_text_sent_to_model(req) == ['Vocês abrem no sábado?'] }).to have_been_made.once
+      expect(a_request(:post, completions_url).with { |req| user_text_sent_to_model(req) == ['E no domingo?'] }).to have_been_made.once
+    end
+  end
+
+  describe 'conversations no longer served while the agent thinks' do
+    it 'does not reply when a human took over' do
+      stub_completion_while_thinking { human_takes_over }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'AutomatoAgents::Turn::NoLongerServedError')
+      expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
+    end
+
+    it 'does not reply when the team was disabled' do
+      stub_completion_while_thinking { team.reload.update!(enabled: false) }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole.error_class).to eq('AutomatoAgents::Turn::NoLongerServedError')
+    end
+
+    it 'sends no fallback when the AI fails after a human took over' do
+      stub_completion_while_thinking(status: 500) { human_takes_over }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'RubyLLM::ServerError')
+      expect(conversation.reload.assignee).to be_present
+    end
+  end
+
   describe 'idempotency' do
     it 'answers once when the turn runs twice in a row, without a second run nor AI call' do
       create(:message, account: account, inbox: inbox, conversation: conversation, message_type: :incoming, content: 'Oi')
@@ -201,6 +266,37 @@ RSpec.describe AutomatoAgents::Turn do
 
       expect_failed_turn('AutomatoAgents::Turn::BlankTextError')
       expect(completion_stub).not_to have_been_requested
+    end
+
+    it 'only records the failure when it happens after the reply was sent' do
+      allow(AutomatoAgents::Run).to receive(:create!).and_wrap_original do |create_run, **attributes|
+        create_run.call(**attributes).tap do |run|
+          allow(run).to receive(:add_step!).and_wrap_original do |add_step, **step|
+            raise ActiveRecord::ActiveRecordError, 'trace write failed' if step[:kind] == 'message_sent'
+
+            add_step.call(**step)
+          end
+        end
+      end
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies.map(&:content)).to eq([agent_reply])
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'ActiveRecord::ActiveRecordError')
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+
+    it 'marks the run as failed and re-raises when the worker is interrupted mid-turn' do
+      stub_request(:post, completions_url).to_raise(Interrupt)
+      create(:message, account: account, inbox: inbox, conversation: conversation, message_type: :incoming, content: 'Oi')
+
+      with_modified_env AUTOMATO_AGENTS_OPENROUTER_API_KEY: api_key do
+        expect { described_class.new(conversation).perform }.to raise_error(Interrupt)
+      end
+
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'Interrupt', finished_at: be_present)
+      expect(bot_replies).to be_empty
     end
 
     it 'does not run the agent again once the failed turn handed the conversation off' do

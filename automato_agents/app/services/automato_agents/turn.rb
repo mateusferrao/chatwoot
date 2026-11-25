@@ -1,7 +1,7 @@
 # One agent turn of a conversation served by a team (TurnJob checks that and holds the
-# conversation lock): answers the customer messages received since the last reply, recording
-# the trace (Run and Steps) and the LLM usage. On any failure the customer gets the account
-# fallback message and the conversation goes to humans, so it never stays pending on the bot.
+# conversation lock): answers the customer messages not answered yet, recording the trace (Run
+# and Steps) and the LLM usage. On any failure the customer gets the account fallback message
+# and the conversation goes to humans, so it never stays pending on the bot.
 class AutomatoAgents::Turn
   # The echo agent has no tools, so one provider request answers it (see the time budget in
   # AutomatoAgents::Llm::OpenRouterProvider).
@@ -9,6 +9,11 @@ class AutomatoAgents::Turn
   MAX_INPUT_MESSAGES = 20
 
   class BlankTextError < StandardError
+  end
+
+  # A human took over, the conversation was resolved, or the team or account was disabled
+  # while the agent was thinking: the agent must stay silent.
+  class NoLongerServedError < StandardError
   end
 
   def initialize(conversation)
@@ -19,36 +24,55 @@ class AutomatoAgents::Turn
   end
 
   def perform
-    messages = pending_customer_messages
-    # nothing new since the last reply: a repeated turn must not answer twice
+    messages = unanswered_customer_messages
+    # nothing new since the last answer: a repeated turn must not answer twice
     return if messages.empty?
 
     start_run(messages.last)
-    answer(messages)
-  rescue StandardError => e
-    raise if @run.nil?
-
-    fail_run(e)
+    run_turn(messages)
   end
 
   private
 
-  def pending_customer_messages
-    last_reply_id = @conversation.messages.outgoing.where(private: false).maximum(:id)
+  # Incoming messages after the last one an earlier run answered, or after the last reply of
+  # someone other than this team's bot (a human). Messages that arrive while a turn runs are
+  # left for the next turn. Failed and interrupted runs do not count as answers.
+  def unanswered_customer_messages
     messages = @conversation.messages.incoming.where(private: false)
-    messages = messages.where(id: (last_reply_id + 1)..) if last_reply_id
+    answered_through = [last_answered_message_id, last_reply_by_others_id].compact.max
+    messages = messages.where(id: (answered_through + 1)..) if answered_through
     messages.reorder(id: :desc).limit(MAX_INPUT_MESSAGES).to_a.reverse
   end
 
-  def start_run(trigger_message)
+  def last_answered_message_id
+    AutomatoAgents::Run.where(conversation_id: @conversation.id, status: 'succeeded').maximum(:trigger_message_id)
+  end
+
+  def last_reply_by_others_id
+    table = Message.arel_table
+    not_from_team_bot = table[:sender_type].is_distinct_from('AgentBot').or(table[:sender_id].is_distinct_from(@team.agent_bot_id))
+    @conversation.messages.outgoing.where(private: false).where(not_from_team_bot).maximum(:id)
+  end
+
+  # trigger_message_id is the last customer message this run answers
+  def start_run(last_message)
     @run = AutomatoAgents::Run.create!(
       account: @account,
       team: @team,
       conversation: @conversation,
       status: 'running',
-      trigger_message_id: trigger_message.id,
+      trigger_message_id: last_message.id,
       started_at: Time.current
     )
+  end
+
+  def run_turn(messages)
+    answer(messages)
+  rescue StandardError => e
+    fail_run(e)
+  ensure
+    # an interruption (e.g. Sidekiq shutdown) or a failure while failing must not leave the run running
+    mark_interrupted($ERROR_INFO) if @run.status_in_database == 'running'
   end
 
   def answer(messages)
@@ -58,8 +82,10 @@ class AutomatoAgents::Turn
     record_llm_calls(input, llm_calls)
     raise result.error if result.error
     raise BlankTextError, 'the agent returned no text' if result.output.blank?
+    raise NoLongerServedError, 'the conversation is no longer served by the team' unless still_served?
 
     reply = AutomatoAgents::Chatwoot::Replier.send_text(conversation: @conversation, agent_bot: @team.agent_bot, content: result.output)
+    @reply_sent = true
     @run.add_step!(kind: 'message_sent', name: 'send_text', output: { message_id: reply.id, content: reply.content })
     finish_run('succeeded')
   end
@@ -112,14 +138,25 @@ class AutomatoAgents::Turn
     )
   end
 
-  # Hands off before sending the fallback message: if sending fails, the conversation is
-  # already with humans and the job retry does not run the agent again.
+  # The customer is told and handed to humans only while the team still serves the conversation
+  # and has not answered it yet. The fallback goes first because a bot message clears
+  # waiting_since; the handoff sets it again even when sending fails.
   def fail_run(error)
     Rails.logger.error("[AutomatoAgents] turn failed run=#{@run.id} conversation=#{@conversation.id}: #{error.class}")
+    hand_off_with_fallback if !@reply_sent && still_served?
     @run.add_step!(kind: 'error', name: error.class.name, output: { message: error.message })
     finish_run('failed', error)
-    @conversation.bot_handoff!
+  end
+
+  def hand_off_with_fallback
     AutomatoAgents::Chatwoot::Replier.send_text(conversation: @conversation, agent_bot: @team.agent_bot, content: @setting.fallback_message)
+  ensure
+    @conversation.reload.bot_handoff!
+  end
+
+  def still_served?
+    @conversation.reload
+    @team.reload.serves?(@conversation)
   end
 
   def finish_run(status, error = nil)
@@ -130,6 +167,11 @@ class AutomatoAgents::Turn
       error_class: error&.class&.name,
       error_message: error&.message
     )
+  end
+
+  # error is nil when the thread was killed without an exception
+  def mark_interrupted(error)
+    @run.update!(status: 'failed', finished_at: Time.current, error_class: error&.class&.name || 'Interrupted', error_message: error&.message)
   end
 
   def known_cost

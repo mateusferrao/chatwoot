@@ -7,11 +7,14 @@ class AutomatoAgents::Llm::OpenRouterProvider
   PROVIDER = :openrouter
 
   # Turn time budget: TurnJob holds the conversation lock for 180 s and the lock is released
-  # without an owner check, so a turn must finish well before it (target: 120 s). One LLM call
-  # takes at most REQUEST_TIMEOUT, plus one retry after at most RETRY_MAX_INTERVAL:
-  # 40 + 5 + 40 = 85 s. The echo agent makes a single call (Turn::MAX_TURNS), leaving ~35 s
-  # for sending the reply.
-  REQUEST_TIMEOUT = 40
+  # without an owner check, so a turn must finish well before it (target: 120 s). RubyLLM sets
+  # Faraday's timeout, which net_http applies to connecting and to each read (it also bounds
+  # writing the small request body), so one attempt takes at most 20 s to connect + 20 s
+  # waiting for a response read; with one retry after at most RETRY_MAX_INTERVAL:
+  # (20 + 20) x 2 + 5 = 85 s. The echo agent makes a single call (Turn::MAX_TURNS), leaving
+  # ~35 s to record and send the reply. Caveat: the read timeout restarts on every chunk read,
+  # so a server that keeps trickling bytes can outlast it.
+  REQUEST_TIMEOUT = 20
   MAX_RETRIES = 1
   RETRY_MAX_INTERVAL = 5
 
@@ -30,14 +33,6 @@ class AutomatoAgents::Llm::OpenRouterProvider
       configure_openrouter(config, api_key)
       configure_time_budget(config)
     end
-  end
-
-  def chat(model:)
-    context.chat(model: model, provider: PROVIDER, assume_model_exists: true)
-  end
-
-  def fallback_model(model_id)
-    RubyLLM::Model.default(model_id, PROVIDER.to_s)
   end
 
   private
