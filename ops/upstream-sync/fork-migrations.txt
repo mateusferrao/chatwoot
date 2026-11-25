@@ -1,0 +1,22 @@
+# Migrations PRÓPRIAS do fork (não existem no upstream), em db/migrate/.
+#
+# ops/scripts/sync-upstream.sh usa esta lista para regenerar o db/schema.rb a cada
+# atualização do upstream: carrega o schema.rb do upstream num banco descartável e
+# aplica estas migrations por cima. ops/scripts/check-fork-schema.sh (e o workflow
+# "Fork - schema do fork") confere se o db/schema.rb reflete todas elas.
+#
+# Por que importa: em banco novo, a produção (db:chatwoot_prepare) carrega o
+# db/schema.rb e dá como rodadas as migrations com versão até a dele. Uma tabela do
+# fork que suma do schema.rb nunca seria criada.
+#
+# Regra: TODA migration nova do fork entra aqui (uma linha por arquivo, caminho a
+# partir da raiz do repo) e precisa ser reversível (change ou up/down). Migrations
+# com "automato_agents" no nome fora desta lista fazem a checagem falhar.
+db/migrate/20261125182006_create_automato_agents_account_settings.rb
+db/migrate/20261125182347_create_automato_agents_teams.rb
+db/migrate/20261125182352_create_automato_agents_team_inboxes.rb
+db/migrate/20261125185734_create_automato_agents_usage_entries.rb
+db/migrate/20261125190645_create_automato_agents_runs.rb
+db/migrate/20261125190649_create_automato_agents_steps.rb
+db/migrate/20261125190654_add_run_id_to_automato_agents_usage_entries.rb
+db/migrate/20261125194817_create_automato_agents_conversation_states.rb

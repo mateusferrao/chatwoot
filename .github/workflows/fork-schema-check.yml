@@ -1,0 +1,66 @@
+# Fork Automato: confere se o db/schema.rb reflete as migrations próprias do fork
+# (ops/upstream-sync/fork-migrations.txt). Em banco novo a produção carrega o
+# db/schema.rb e dá como rodadas as migrations até a versão dele: uma tabela do fork
+# ausente do schema nunca seria criada. Ver docs/fork/atualizar-upstream.md.
+name: Fork - schema do fork
+
+on:
+  pull_request:
+    paths:
+      - 'db/**'
+      # Atualizações do Rails podem mudar as APIs internas do Active Record usadas pela checagem.
+      - 'Gemfile.lock'
+      - 'ops/upstream-sync/**'
+      - 'ops/scripts/check-fork-schema.sh'
+      - 'lib/fork/schema_sync.rb'
+      - 'lib/tasks/fork_schema.rake'
+      - '.github/workflows/fork-schema-check.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fork-schema-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        # Mesma imagem da produção (Postgres 16 com pgvector).
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: ''
+          POSTGRES_DB: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --mount type=tmpfs,destination=/var/lib/postgresql/data
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      RAILS_ENV: test
+      POSTGRES_HOST: localhost
+      POSTGRES_USERNAME: postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ruby/setup-ruby@v1
+        with:
+          bundler-cache: true
+
+      # Como na imagem CE: a produção roda sem enterprise/.
+      - name: Remover código enterprise
+        run: ops/scripts/strip-enterprise.sh
+
+      - name: Conferir db/schema.rb x migrations do fork
+        run: ops/scripts/check-fork-schema.sh
