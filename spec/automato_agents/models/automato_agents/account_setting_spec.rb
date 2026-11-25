@@ -14,6 +14,18 @@ RSpec.describe AutomatoAgents::AccountSetting do
       expect(setting.fallback_message).to eq('Desculpe, tive um problema por aqui. Vou te passar para alguém da nossa equipe.')
     end
 
+    it 'has no budget and the budget defaults' do
+      setting = described_class.for(account)
+
+      expect(setting).to have_attributes(
+        monthly_budget_brl: nil,
+        usd_brl_rate: BigDecimal('5.5'),
+        budget_policy: 'handoff',
+        cheaper_model: 'google/gemini-2.5-flash-lite',
+        budget_exceeded_message: 'No momento vou te passar para alguém da nossa equipe, que já vai te responder.'
+      )
+    end
+
     it 'returns the existing record when present' do
       existing = create(:automato_agents_account_setting, account: account, enabled: true)
 
@@ -36,6 +48,49 @@ RSpec.describe AutomatoAgents::AccountSetting do
       duplicate = build(:automato_agents_account_setting, account: account)
 
       expect { duplicate.save!(validate: false) }.to raise_error(ActiveRecord::RecordNotUnique)
+    end
+  end
+
+  describe 'budget validations' do
+    let(:setting) { build(:automato_agents_account_setting, account: account) }
+
+    it 'accepts each budget policy' do
+      %w[handoff cheaper_model alert_only].each do |policy|
+        setting.budget_policy = policy
+
+        expect(setting).to be_valid
+      end
+    end
+
+    it 'rejects an unknown budget policy' do
+      setting.budget_policy = 'block'
+
+      expect(setting).not_to be_valid
+      expect(setting.errors[:budget_policy]).to be_present
+    end
+
+    it 'requires a positive dollar rate' do
+      [0, -1, nil].each do |rate|
+        setting.usd_brl_rate = rate
+
+        expect(setting).not_to be_valid
+        expect(setting.errors[:usd_brl_rate]).to be_present
+      end
+    end
+
+    it 'accepts no budget, a zero budget and a positive budget' do
+      [nil, 0, 150.5].each do |amount|
+        setting.monthly_budget_brl = amount
+
+        expect(setting).to be_valid
+      end
+    end
+
+    it 'rejects a negative budget' do
+      setting.monthly_budget_brl = -0.01
+
+      expect(setting).not_to be_valid
+      expect(setting.errors[:monthly_budget_brl]).to be_present
     end
   end
 

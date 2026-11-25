@@ -76,11 +76,20 @@ RSpec.describe AutomatoAgents::Turn do
     end
   end
 
+  # Only creates the reply: the event that pauses the agent is left unprocessed.
+  def human_reply
+    create(:message, account: account, inbox: inbox, conversation: conversation, message_type: :outgoing,
+                     sender: create(:user, account: account), content: 'Deixa comigo')
+  end
+
   def human_replies
-    perform_enqueued_jobs(only: EventDispatcherJob) do
-      create(:message, account: account, inbox: inbox, conversation: conversation, message_type: :outgoing,
-                       sender: create(:user, account: account), content: 'Deixa comigo')
-    end
+    perform_enqueued_jobs(only: EventDispatcherJob) { human_reply }
+  end
+
+  # As AutomationRules::ActionService#send_message does: no sender, marked with the rule.
+  def automation_sends(content)
+    params = { content: content, private: false, content_attributes: { automation_rule_id: 7 } }
+    Messages::MessageBuilder.new(nil, conversation.reload, params).perform
   end
 
   def human_takes_over
@@ -222,6 +231,33 @@ RSpec.describe AutomatoAgents::Turn do
       expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
     end
 
+    it 'does not reply when a human replied before the pause event was processed' do
+      stub_completion_while_thinking { human_reply }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'AutomatoAgents::Turn::NoLongerServedError')
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+
+      perform_enqueued_jobs(only: EventDispatcherJob)
+
+      expect(AutomatoAgents::ConversationState.paused?(conversation)).to be(true)
+      expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
+    end
+
+    it 'sends no fallback when the AI fails after a human replied, before the pause event was processed' do
+      stub_completion_while_thinking(status: 500) { human_reply }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies).to be_empty
+      expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'RubyLLM::ServerError')
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+
     it 'does not reply when the agent was paused while the conversation is still pending on the bot' do
       stub_completion_while_thinking { AutomatoAgents::ConversationState.for(conversation).pause!(nil) }
 
@@ -251,6 +287,192 @@ RSpec.describe AutomatoAgents::Turn do
       expect(bot_replies).to be_empty
       expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'RubyLLM::ServerError')
       expect(conversation.reload.assignee).to be_present
+    end
+  end
+
+  describe 'automated messages' do
+    it 'still replies when an automation sends a message while the agent thinks' do
+      stub_completion_while_thinking { automation_sends('Recebemos sua mensagem.') }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(bot_replies.map(&:content)).to eq([agent_reply])
+      expect(AutomatoAgents::Run.sole.status).to eq('succeeded')
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+
+    it 'sends the fallback and hands off when the AI fails while an automation sends a message' do
+      stub_completion_while_thinking(status: 500) { automation_sends('Recebemos sua mensagem.') }
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect_failed_turn('RubyLLM::ServerError')
+    end
+
+    it 'answers the customer message after a greeting automation sent before the turn' do
+      deliver('Oi')
+      perform_enqueued_jobs(only: EventDispatcherJob) { automation_sends('Olá! Já vamos te atender.') }
+      run_scheduled_turns
+
+      expect(completion_stub.with { |req| user_text_sent_to_model(req) == ['Oi'] }).to have_been_requested.once
+      expect(bot_replies.map(&:content)).to eq([agent_reply])
+      expect(AutomatoAgents::ConversationState.paused?(conversation)).to be(false)
+      expect(conversation.reload).to have_attributes(status: 'pending', assignee_agent_bot_id: agent_bot.id)
+    end
+  end
+
+  describe 'monthly budget' do
+    let(:cheaper_model) { 'google/gemini-2.5-flash-lite' }
+    let(:budget_message) { 'Agora vou te passar para alguém da equipe.' }
+
+    # 2 USD at 5 BRL reach the budget of 10 BRL
+    def configure_budget(policy, monthly_budget_brl: 10)
+      AutomatoAgents::AccountSetting.for(account).update!(
+        monthly_budget_brl: monthly_budget_brl, usd_brl_rate: 5, budget_policy: policy,
+        cheaper_model: cheaper_model, budget_exceeded_message: budget_message
+      )
+    end
+
+    def exceed_budget
+      create(:automato_agents_usage_entry, account: account, cost_usd: 2)
+    end
+
+    def model_requested(requested_model)
+      a_request(:post, completions_url).with { |req| JSON.parse(req.body)['model'] == requested_model }
+    end
+
+    context 'when the policy is handoff' do
+      before { configure_budget('handoff') }
+
+      it 'sends the budget message and hands off to humans without calling the AI' do
+        exceed_budget
+
+        deliver('Oi')
+        run_scheduled_turns
+
+        expect(a_request(:post, completions_url)).not_to have_been_made
+        expect(bot_replies.map(&:content)).to eq([budget_message])
+        run = AutomatoAgents::Run.sole
+        expect(run).to have_attributes(status: 'succeeded', error_class: nil, cost_usd: nil, finished_at: be_present)
+        expect(run.steps.map(&:kind)).to eq(%w[budget message_sent])
+        expect(run.steps.first).to have_attributes(
+          name: 'handoff', output: { 'policy' => 'handoff', 'spent_brl' => '10.0', 'monthly_budget_brl' => '10.0' }
+        )
+        expect(bot_replies.sole.reload.content_attributes).to include(
+          'automato_agents' => { 'run_id' => run.id, 'answered_through' => run.trigger_message_id }
+        )
+        expect(conversation.reload).to have_attributes(status: 'open', ai_assignee: nil, assignee_agent_bot_id: nil, waiting_since: be_present)
+      end
+
+      it 'stops calling the AI once the budget is exceeded in the middle of the month' do
+        create(:automato_agents_usage_entry, account: account, cost_usd: 1.9)
+        stub_request(:post, completions_url).to_return(
+          status: 200, body: response_body.deep_merge(usage: { cost: 0.2 }).to_json, headers: { 'Content-Type' => 'application/json' }
+        )
+
+        deliver('Oi')
+        run_scheduled_turns
+        expect(bot_replies.map(&:content)).to eq([agent_reply])
+
+        deliver('Ainda está aí?')
+        run_scheduled_turns
+
+        expect(a_request(:post, completions_url)).to have_been_made.once
+        expect(bot_replies.map(&:content)).to eq([agent_reply, budget_message])
+        expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil)
+      end
+
+      it 'sends the budget message once when the turn runs twice in a row' do
+        exceed_budget
+        create(:message, account: account, inbox: inbox, conversation: conversation, message_type: :incoming, content: 'Oi')
+
+        2.times { described_class.new(conversation).perform }
+
+        expect(bot_replies.map(&:content)).to eq([budget_message])
+        expect(AutomatoAgents::Run.count).to eq(1)
+        expect(a_request(:post, completions_url)).not_to have_been_made
+      end
+
+      it 'still hands off to humans, without the fallback, when sending the budget message fails' do
+        exceed_budget
+        allow(AutomatoAgents::Chatwoot::Replier).to receive(:send_text).and_raise(ActiveRecord::ActiveRecordError, 'send failed')
+
+        deliver('Oi')
+        run_scheduled_turns
+
+        expect(AutomatoAgents::Chatwoot::Replier).to have_received(:send_text).once
+        expect(AutomatoAgents::Run.sole).to have_attributes(status: 'failed', error_class: 'ActiveRecord::ActiveRecordError')
+        expect(AutomatoAgents::Run.sole.steps.map(&:kind)).to eq(%w[budget error])
+        expect(conversation.reload).to have_attributes(status: 'open', assignee_agent_bot_id: nil, waiting_since: be_present)
+      end
+    end
+
+    context 'when the policy is cheaper_model' do
+      before { configure_budget('cheaper_model') }
+
+      it 'answers with the cheaper model and records the budget step' do
+        exceed_budget
+
+        deliver('Oi')
+        run_scheduled_turns
+
+        expect(model_requested(cheaper_model)).to have_been_made.once
+        expect(model_requested(model)).not_to have_been_made
+        expect(bot_replies.map(&:content)).to eq([agent_reply])
+        run = AutomatoAgents::Run.sole
+        expect(run.status).to eq('succeeded')
+        expect(run.steps.map { |step| [step.kind, step.name] })
+          .to eq([%w[budget cheaper_model], ['llm_call', cheaper_model], %w[message_sent send_text]])
+        expect(run.steps.first.output).to eq('policy' => 'cheaper_model', 'spent_brl' => '10.0', 'monthly_budget_brl' => '10.0')
+        expect(AutomatoAgents::UsageEntry.where(run: run).sole.model).to eq(cheaper_model)
+      end
+    end
+
+    context 'when the policy is alert_only' do
+      before { configure_budget('alert_only') }
+
+      it 'answers normally with the default model, records the budget step and logs a warning' do
+        allow(Rails.logger).to receive(:warn).and_call_original
+        exceed_budget
+
+        deliver('Oi')
+        run_scheduled_turns
+
+        expect(model_requested(model)).to have_been_made.once
+        expect(bot_replies.map(&:content)).to eq([agent_reply])
+        run = AutomatoAgents::Run.sole
+        expect(run.steps.map(&:kind)).to eq(%w[budget llm_call message_sent])
+        expect(run.steps.first).to have_attributes(name: 'alert_only')
+        expect(Rails.logger).to have_received(:warn)
+          .with("[AutomatoAgents] monthly AI budget exceeded account=#{account.id} run=#{run.id} policy=alert_only")
+      end
+    end
+
+    context 'without a budget' do
+      it 'never blocks the agent' do
+        configure_budget('handoff', monthly_budget_brl: nil)
+        create(:automato_agents_usage_entry, account: account, cost_usd: 10_000)
+
+        deliver('Oi')
+        run_scheduled_turns
+
+        expect(model_requested(model)).to have_been_made.once
+        expect(bot_replies.map(&:content)).to eq([agent_reply])
+        expect(AutomatoAgents::Run.sole.steps.map(&:kind)).to eq(%w[llm_call message_sent])
+      end
+    end
+
+    it 'does not record a budget step while within the budget' do
+      configure_budget('handoff')
+      create(:automato_agents_usage_entry, account: account, cost_usd: 1.99)
+
+      deliver('Oi')
+      run_scheduled_turns
+
+      expect(model_requested(model)).to have_been_made.once
+      expect(AutomatoAgents::Run.sole.steps.map(&:kind)).to eq(%w[llm_call message_sent])
     end
   end
 

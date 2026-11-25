@@ -41,7 +41,10 @@ RSpec.describe AutomatoAgents::Conversations::ResumeService do
   describe 'without an active team in the inbox' do
     def expect_no_active_team_error
       expect { described_class.new(conversation: conversation, user: user).perform }
-        .to raise_error(AutomatoAgents::Conversations::NoActiveTeamError, /#{inbox.name}/)
+        .to raise_error(
+          AutomatoAgents::Conversations::NoActiveTeamError,
+          "The inbox '#{inbox.name}' has no active agent team to answer the conversation."
+        )
       expect(conversation.reload).to have_attributes(status: 'open', assignee_id: user.id)
       expect(AutomatoAgents::ConversationState.sole.status).to eq('paused')
     end
