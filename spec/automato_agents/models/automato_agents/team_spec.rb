@@ -18,7 +18,7 @@ RSpec.describe AutomatoAgents::Team do
     end
 
     it 'is invalid when an inbox belongs to another account' do
-      team.inboxes << create(:inbox, account: create(:account))
+      team.inboxes.build(account: create(:account), name: 'Outra', channel: create(:channel_widget))
 
       expect(team).not_to be_valid
       expect(team.errors[:inboxes]).to be_present
@@ -54,6 +54,50 @@ RSpec.describe AutomatoAgents::Team do
       bot.destroy!
 
       expect(team.reload.agent_bot_id).to be_nil
+    end
+  end
+
+  describe 'syncing the agent bot links' do
+    let(:inbox) { create(:inbox, account: account) }
+
+    before do
+      create(:automato_agents_team_inbox, team: team, inbox: inbox)
+      AutomatoAgents::Teams::ProvisionService.new(team).perform
+    end
+
+    it 'activates the link when the team is enabled and the account is enabled' do
+      create(:automato_agents_account_setting, account: account, enabled: true)
+      expect(AgentBotInbox.find_by(inbox_id: inbox.id)).to be_inactive
+
+      team.update!(enabled: true)
+
+      expect(AgentBotInbox.find_by(inbox_id: inbox.id)).to be_active
+    end
+
+    it 'deactivates the link when the team is disabled' do
+      create(:automato_agents_account_setting, account: account, enabled: true)
+      team.update!(enabled: true)
+
+      team.update!(enabled: false)
+
+      expect(AgentBotInbox.find_by(inbox_id: inbox.id)).to be_inactive
+    end
+
+    it 'does not re-provision when other attributes change' do
+      allow(AutomatoAgents::Teams::ProvisionService).to receive(:new).and_call_original
+
+      team.update!(name: 'Outro nome')
+
+      expect(AutomatoAgents::Teams::ProvisionService).not_to have_received(:new)
+    end
+
+    it 'removes the links but keeps the agent bot when the team is destroyed' do
+      bot_id = team.reload.agent_bot_id
+
+      team.destroy!
+
+      expect(AgentBotInbox.where(agent_bot_id: bot_id)).to be_empty
+      expect(AgentBot.exists?(bot_id)).to be(true)
     end
   end
 

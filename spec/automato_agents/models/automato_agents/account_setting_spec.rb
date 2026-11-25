@@ -64,4 +64,22 @@ RSpec.describe AutomatoAgents::AccountSetting do
       expect(AutomatoAgents.enabled_for?(account)).to be(true)
     end
   end
+
+  describe 'syncing teams' do
+    let(:team) { create(:automato_agents_team, account: account, enabled: true) }
+    let(:inbox) { create(:inbox, account: account) }
+
+    before do
+      create(:automato_agents_team_inbox, team: team, inbox: inbox)
+    end
+
+    it 'activates the team links when the account is enabled and deactivates them when disabled' do
+      setting = create(:automato_agents_account_setting, account: account, enabled: true)
+      expect(AgentBotInbox.find_by(inbox_id: inbox.id)).to be_active
+
+      setting.update!(enabled: false)
+
+      expect(AgentBotInbox.find_by(inbox_id: inbox.id)).to be_inactive
+    end
+  end
 end

@@ -18,4 +18,13 @@ class AutomatoAgents::TeamInbox < ApplicationRecord
   belongs_to :inbox
 
   validates :inbox_id, uniqueness: true
+  validate :inbox_belongs_to_team_account
+
+  private
+
+  def inbox_belongs_to_team_account
+    return if inbox.blank? || team.blank? || inbox.account_id == team.account_id
+
+    errors.add(:inbox, 'must belong to the same account as the team')
+  end
 end

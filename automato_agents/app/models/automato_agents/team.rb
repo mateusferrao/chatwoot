@@ -20,6 +20,10 @@ class AutomatoAgents::Team < ApplicationRecord
   belongs_to :agent_bot, optional: true
   has_many :team_inboxes, class_name: 'AutomatoAgents::TeamInbox', dependent: :destroy, inverse_of: :team
   has_many :inboxes, through: :team_inboxes
+  has_many :agent_bot_inboxes, primary_key: :agent_bot_id, foreign_key: :agent_bot_id, inverse_of: false, dependent: nil
+
+  before_destroy :remove_agent_bot_links
+  after_commit :provision, if: :saved_change_to_enabled?, on: [:create, :update]
 
   validates :name, presence: true, uniqueness: { scope: :account_id }
   validate :inboxes_belong_to_account
@@ -33,6 +37,14 @@ class AutomatoAgents::Team < ApplicationRecord
   end
 
   private
+
+  def provision
+    AutomatoAgents::Teams::ProvisionService.new(self).perform
+  end
+
+  def remove_agent_bot_links
+    agent_bot_inboxes.destroy_all
+  end
 
   def inboxes_belong_to_account
     return if inboxes.all? { |inbox| inbox.account_id == account_id }
