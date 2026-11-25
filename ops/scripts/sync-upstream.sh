@@ -217,7 +217,9 @@ if [[ "$schema_needed" == true && "$SKIP_SCHEMA" == true ]]; then
   fi
 elif [[ "$schema_needed" == true ]]; then
   echo "==> O upstream mexeu no schema: regenerando db/schema.rb com as tabelas do fork..."
-  if ! "ops/scripts/regenerate-fork-schema.sh" "$TAG"; then
+  schema_result_file="$(mktemp)"
+  trap 'rm -f "$schema_result_file"' EXIT
+  if ! FORK_SCHEMA_RESULT_FILE="$schema_result_file" "ops/scripts/regenerate-fork-schema.sh" "$TAG"; then
     echo
     echo "!! Falha ao regenerar o db/schema.rb (veja o erro acima). O merge segue em andamento, sem commit."
     echo "   Corrija o ambiente (Postgres, Ruby, bundle install) e rode:"
@@ -241,6 +243,10 @@ if [[ "$schema_regenerated" == true ]]; then
   echo "-- db/schema.rb REGENERADO (schema do upstream ${TAG} + migrations do fork) e conferido."
   echo "   REVISE o diff contra o upstream; deve mostrar só a versão e as tabelas/chaves do fork:"
   echo "   git diff ${TAG} -- ${schema_file}"
+  if [[ "$(cat "$schema_result_file")" == "full_dump" ]]; then
+    echo "   !! ATENÇÃO: as tabelas do fork não encaixaram no texto do upstream sem conflito; foi gravado o"
+    echo "      dump completo (correto, mas o diff traz também diferenças de formatação do dumper local)."
+  fi
   echo
 elif [[ "$schema_needed" == true ]]; then
   echo "-- !! db/schema.rb NÃO regenerado (--skip-schema). Antes do PR rode:"

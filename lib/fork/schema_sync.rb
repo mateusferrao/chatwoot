@@ -20,10 +20,13 @@
 #   (ops/scripts/check-fork-schema.sh)
 #
 # Os bancos descartáveis usam a configuração do ambiente atual com o nome
-# "<prefixo>_sync_<pid>" e são apagados ao final, mesmo em caso de erro.
+# "<prefixo>_sync_<pid>_<aleatório>" e são apagados ao final, mesmo em caso de erro.
+# Ferramenta de desenvolvimento/CI: recusa rodar em produção.
 # Migrations rodam pela mesma API dos tasks db:migrate:up/down
 # (MigrationContext#run), sem o dump automático do db/schema.rb que esses tasks fazem.
+require 'fileutils'
 require 'open3'
+require 'securerandom'
 require 'tmpdir'
 
 class Fork::SchemaSync
@@ -34,12 +37,14 @@ class Fork::SchemaSync
   class Error < StandardError; end
 
   def initialize(root: Rails.root)
+    raise Error, 'recusado em produção: cria e apaga bancos de dados descartáveis' if Rails.env.production?
+
     @root = Pathname(root)
   end
 
-  # Grava o schema regenerado em output. Retorna :merged (diff mínimo contra o upstream)
-  # ou :full_dump (o merge de três vias conflitou; gravou o dump completo, que é correto
-  # mas traz as diferenças de formatação do dumper local).
+  # Grava o schema regenerado em output, só depois de conferido. Retorna :merged (diff
+  # mínimo contra o upstream) ou :full_dump (o merge de três vias conflitou; gravou o dump
+  # completo, que é correto mas traz as diferenças de formatação do dumper local).
   def regenerate!(upstream_schema:, output:)
     validate_manifest!
     upstream = File.read(upstream_schema)
@@ -47,8 +52,12 @@ class Fork::SchemaSync
 
     upstream_dump, fork_dump = dumps_before_and_after_fork_migrations(upstream_schema, header)
     merged = merge_onto_upstream(upstream, upstream_dump, fork_dump)
-    File.write(output, merged || fork_dump)
-    ensure_loads_as!(output, fork_dump, header)
+    Dir.mktmpdir do |dir|
+      candidate = File.join(dir, 'schema.rb')
+      File.write(candidate, merged || fork_dump)
+      ensure_loads_as!(candidate, fork_dump, header)
+      FileUtils.mv(candidate, output)
+    end
     merged ? :merged : :full_dump
   end
 
@@ -104,13 +113,17 @@ class Fork::SchemaSync
   def with_scratch_database(prefix)
     original = ActiveRecord::Base.connection_db_config
     scratch = ActiveRecord::DatabaseConfigurations::HashConfig.new(
-      original.env_name, original.name, original.configuration_hash.merge(database: "#{prefix}_sync_#{Process.pid}")
+      original.env_name, original.name,
+      original.configuration_hash.merge(database: "#{prefix}_sync_#{Process.pid}_#{SecureRandom.hex(4)}")
     )
     verbose_was = ActiveRecord::Migration.verbose
     ActiveRecord::Migration.verbose = ENV['VERBOSE'].present?
     ActiveRecord::Tasks::DatabaseTasks.create(scratch)
     begin
       ActiveRecord::Base.establish_connection(scratch)
+      # DatabaseTasks.create só avisa se o banco já existe; um banco com tabelas daria falso OK.
+      raise Error, "o banco descartável #{scratch.database} já existia com tabelas" if pool.with_connection(&:tables).any?
+
       yield
     ensure
       ActiveRecord::Tasks::DatabaseTasks.drop(scratch)

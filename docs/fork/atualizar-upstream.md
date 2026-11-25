@@ -39,7 +39,7 @@ Saídas do script:
 O fork tem migrations próprias (tabelas `automato_agents_*`), listadas em [`ops/upstream-sync/fork-migrations.txt`](../../ops/upstream-sync/fork-migrations.txt). Elas precisam estar no `db/schema.rb`: em banco novo a produção (`db:chatwoot_prepare`) **carrega o `db/schema.rb`** e dá como rodadas todas as migrations com versão até a dele. Uma tabela do fork que sumisse do schema **nunca seria criada**.
 
 Por isso o `db/schema.rb` não é resolvido à mão no merge. O sync chama [`ops/scripts/regenerate-fork-schema.sh <tag>`](../../ops/scripts/regenerate-fork-schema.sh), que:
-1. carrega o `db/schema.rb` da tag do upstream num banco descartável (`chatwoot_schema_regen_sync_<pid>`; o banco do seu ambiente não é tocado);
+1. carrega o `db/schema.rb` da tag do upstream num banco descartável (`chatwoot_schema_regen_sync_<pid>_<aleatório>`; o banco do seu ambiente não é alterado: o boot do Rails pode, no máximo, lê-lo);
 2. aplica por cima as migrations do fork (desmarcando antes as versões delas, que o `Schema.define` do upstream dá como rodadas);
 3. encaixa a diferença (tabelas, chaves estrangeiras e versão) no texto do schema do upstream, para o diff contra o upstream mostrar **só o que é do fork**; confere que o arquivo resultante, carregado num banco limpo, reproduz o banco com as migrations; apaga os bancos descartáveis;
 4. roda [`ops/scripts/check-fork-schema.sh`](../../ops/scripts/check-fork-schema.sh) e faz `git add db/schema.rb`.

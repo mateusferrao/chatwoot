@@ -10,7 +10,7 @@
 #
 # É PESADO (clona o repo e sobe o Rails várias vezes; alguns minutos): não roda em CI.
 # Requer Ruby/gems do projeto (rbenv) e Postgres com pgvector. Os bancos usados são
-# descartáveis (<prefixo>_sync_<pid>); o banco do ambiente não é tocado. Ex.:
+# descartáveis (<prefixo>_sync_<pid>_<aleatório>); o banco do ambiente não é alterado. Ex.:
 #   eval "$(rbenv init -)"
 #   POSTGRES_PASSWORD=postgres POSTGRES_DATABASE=chatwoot_test_b REDIS_URL=redis://127.0.0.1:6379/5 \
 #     bash ops/scripts/tests/sync-upstream-schema.test.sh
@@ -95,6 +95,9 @@ upstream_change "$fork_schema_before" > "$expected"
 skip="$work/fork-skip"
 git clone -q --shared "$fork" "$skip"
 git -C "$skip" remote remove origin
+divergent="$work/fork-divergente"   # usado no caso 4b, clonado antes do sync
+git clone -q --shared "$fork" "$divergent"
+git -C "$divergent" remote remove origin
 out="$(cd "$skip" && bash ops/scripts/sync-upstream.sh --source "$work/upstream.bundle" --skip-schema "$new_tag" 2>&1)"; code=$?
 if [[ $code -eq 2 && "$out" == *"--skip-schema: o db/schema.rb NÃO foi regenerado"* \
       && "$(git -C "$skip" diff --name-only --diff-filter=U)" == "db/schema.rb" ]]; then
@@ -147,23 +150,27 @@ fi
 # 4b) upstream cujo texto não encaixa as mudanças do fork sem conflito: sem o comentário
 #     das extensões, a linha da versão (que muda: o upstream base é anterior às migrations
 #     do fork) fica colada nas linhas de extensão que o dumper local escreve diferente.
-#     O script grava o dump completo, avisa, e o resultado continua passando na checagem.
+#     O sync grava o dump completo, avisa (também no checklist) e o resultado passa na checagem.
+divergent_tag="${base_tag}-teste-divergente"
 (
-  cd "$fork"
+  cd "$divergent"
   export GIT_INDEX_FILE="$work/divergente.index"
-  git read-tree HEAD
+  git read-tree "$base_tag"
   git show "${base_tag}:db/schema.rb" | sed '/# These extensions should be enabled/d' > "$work/schema-divergente.rb"
   git update-index --add --cacheinfo "100644,$(git hash-object -w "$work/schema-divergente.rb"),db/schema.rb"
-  git tag upstream-texto-divergente "$(git commit-tree "$(git write-tree)" -p HEAD -m "upstream com texto divergente")"
+  git tag "$divergent_tag" "$(git commit-tree "$(git write-tree)" -p "${base_tag}^{commit}" -m "upstream com texto divergente")"
+  git bundle create -q "$work/divergente.bundle" "$divergent_tag" "^${base_tag}"
+  git tag -d "$divergent_tag" >/dev/null
 )
-out="$(cd "$fork" && bash ops/scripts/regenerate-fork-schema.sh upstream-texto-divergente 2>&1)"; code=$?
-if [[ $code -eq 0 && "$out" == *"ATENÇÃO"* && "$out" == *"db/schema.rb OK"* \
-      && "$(grep -c '^  create_table "automato_agents_' "$fork/db/schema.rb")" -eq "$fork_tables" ]]; then
-  pass "texto do upstream que conflita: grava o dump completo, avisa e passa na checagem"
+out="$(cd "$divergent" && bash ops/scripts/sync-upstream.sh --source "$work/divergente.bundle" "$divergent_tag" 2>&1)"; code=$?
+checklist="${out#*CHECKLIST DE REVISÃO}"
+if [[ $code -eq 0 && "$out" == *"db/schema.rb OK"* && "$checklist" == *"db/schema.rb REGENERADO"* \
+      && "$checklist" == *"!! ATENÇÃO: as tabelas do fork não encaixaram"* \
+      && "$(grep -c '^  create_table "automato_agents_' "$divergent/db/schema.rb")" -eq "$fork_tables" ]]; then
+  pass "texto do upstream que conflita: grava o dump completo, avisa no checklist e passa na checagem"
 else
-  fail "texto do upstream que conflita: grava o dump completo, avisa e passa na checagem" "exit=$code: $(echo "$out" | tail -15)"
+  fail "texto do upstream que conflita: grava o dump completo, avisa no checklist e passa na checagem" "exit=$code: $(echo "$out" | tail -15)"
 fi
-git -C "$fork" reset -q --hard
 
 # 5) checagem falha sem uma tabela do fork.
 check_fails() {

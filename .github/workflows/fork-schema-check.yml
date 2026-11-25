@@ -8,6 +8,8 @@ on:
   pull_request:
     paths:
       - 'db/**'
+      # Atualizações do Rails podem mudar as APIs internas do Active Record usadas pela checagem.
+      - 'Gemfile.lock'
       - 'ops/upstream-sync/**'
       - 'ops/scripts/check-fork-schema.sh'
       - 'lib/fork/schema_sync.rb'

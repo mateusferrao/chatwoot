@@ -7,8 +7,8 @@
 # resolver outros conflitos, ou se ele foi rodado com --skip-schema):
 #   ops/scripts/regenerate-fork-schema.sh v4.21.0
 #
-# Usa bancos descartáveis (<prefixo>_sync_<pid>) apagados ao final; o banco do ambiente
-# não é tocado. Requer Ruby/gems do projeto (roda "bundle install" se faltar gem) e um
+# Usa bancos descartáveis (<prefixo>_sync_<pid>_<aleatório>) apagados ao final; o banco do
+# ambiente não é alterado (o boot do Rails pode, no máximo, lê-lo). Requer Ruby/gems do projeto (roda "bundle install" se faltar gem) e um
 # Postgres com pgvector acessível pela configuração de banco do ambiente.
 set -euo pipefail
 

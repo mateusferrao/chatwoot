@@ -6,13 +6,13 @@
 #   - alguma tabela/coluna do fork falta no db/schema.rb ou está diferente do que a
 #     migration cria.
 #
-# Como confere: carrega o db/schema.rb num banco descartável (<prefixo>_sync_<pid>),
+# Como confere: carrega o db/schema.rb num banco descartável (<prefixo>_sync_<pid>_<aleatório>),
 # desfaz as migrations do fork (falha se a tabela/coluna não existe), refaz e compara o
 # dump com o de antes. Detalhes em lib/fork/schema_sync.rb.
 #
 # Requer Ruby/gems do projeto e um Postgres com pgvector acessível pela configuração
 # de banco do ambiente (POSTGRES_HOST, POSTGRES_USERNAME, POSTGRES_PASSWORD...).
-# O banco do ambiente (POSTGRES_DATABASE) não é tocado.
+# O banco do ambiente (POSTGRES_DATABASE) não é alterado (o boot do Rails pode, no máximo, lê-lo).
 #
 # Uso: ops/scripts/check-fork-schema.sh
 set -euo pipefail
