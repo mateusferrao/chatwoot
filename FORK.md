@@ -38,6 +38,7 @@ Este repositório é o **fork operacional da Automato** do [Chatwoot](https://gi
 | `rails fork:branding:apply` ([`lib/fork/branding.rb`](lib/fork/branding.rb)) | Aplica nome, URL e logos da Automato (na CE não há tela para isso) e remove o "Powered by" do widget e da central de ajuda |
 | Workflow **Fork - espelho do upstream** | Guarda semanalmente um git bundle do upstream em Releases do nosso repo, para o fork poder se atualizar se o `chatwoot/chatwoot` sumir ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
 | `vendor/fork-mirror/` | Cópia dos pacotes `@chatwoot/*` (npm) e das gems `ai-agents` e `twitty`, publicados pela Chatwoot Inc.; permite gerar a imagem se forem despublicados ([`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md)) |
+| `automato_agents/` + 2 linhas em `config/application.rb` | Camada de agentes de IA (namespace `AutomatoAgents`), carregada como o `enterprise/`; nasce desligada por conta ([`automato_agents/README.md`](automato_agents/README.md)) |
 | `ops/` e `docs/fork/` | Ferramentas e documentação próprias do fork |
 
 Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da edição CE em todo PR.
@@ -52,6 +53,7 @@ Testes e lint do upstream continuam ativos: `run_foss_spec.yml` roda a suíte da
 | [`docs/fork/atualizar-upstream.md`](docs/fork/atualizar-upstream.md) | Como trazer novas versões do Chatwoot |
 | [`docs/fork/independencia-upstream.md`](docs/fork/independencia-upstream.md) | Espelho do upstream, atualização a partir dele e o que fazer se o upstream sumir |
 | [`docs/fork/agentes/design.md`](docs/fork/agentes/design.md) | Design da equipe de agentes de IA (planejado) |
+| [`docs/fork/agentes/plano-fase-0.md`](docs/fork/agentes/plano-fase-0.md) | Plano de implementação da Fase 0 (fundação) dos agentes |
 | [`docs/fork/canais-futuros.md`](docs/fork/canais-futuros.md) | Instagram/Facebook, e-mail e widget (planejados, não ativos) |
 
 ## Comandos úteis

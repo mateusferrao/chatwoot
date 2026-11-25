@@ -46,6 +46,11 @@ module Chatwoot
     # rubocop:disable Rails/FilePath
     config.eager_load_paths += Dir["#{Rails.root}/enterprise/app/**"]
     # rubocop:enable Rails/FilePath
+    # Fork Automato: camada de agentes de IA (namespace AutomatoAgents), carregada como o enterprise/
+    config.eager_load_paths << Rails.root.join('automato_agents/lib')
+    # rubocop:disable Rails/FilePath
+    config.eager_load_paths += Dir["#{Rails.root}/automato_agents/app/**"]
+    # rubocop:enable Rails/FilePath
     # Add enterprise views to the view paths
     config.paths['app/views'].unshift('enterprise/app/views')
 
