@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.1].define(version: 2026_11_25_182352) do
+ActiveRecord::Schema[7.1].define(version: 2026_11_25_185734) do
   # These extensions should be enabled to support this database
   enable_extension "pg_stat_statements"
   enable_extension "pg_trgm"
@@ -356,6 +356,25 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_182352) do
     t.datetime "updated_at", null: false
     t.index ["account_id", "name"], name: "index_automato_agents_teams_on_account_id_and_name", unique: true
     t.index ["agent_bot_id"], name: "index_automato_agents_teams_on_agent_bot_id"
+  end
+
+  create_table "automato_agents_usage_entries", force: :cascade do |t|
+    t.bigint "account_id", null: false
+    t.bigint "team_id"
+    t.bigint "conversation_id"
+    t.string "provider", null: false
+    t.string "model", null: false
+    t.string "kind", null: false
+    t.integer "input_tokens", default: 0, null: false
+    t.integer "output_tokens", default: 0, null: false
+    t.integer "cache_read_tokens", default: 0, null: false
+    t.integer "cache_write_tokens", default: 0, null: false
+    t.integer "thinking_tokens", default: 0, null: false
+    t.decimal "cost_usd", precision: 14, scale: 8
+    t.string "cost_source", null: false
+    t.string "key_source", default: "automato", null: false
+    t.datetime "created_at", null: false
+    t.index ["account_id", "created_at"], name: "idx_on_account_id_created_at_f49dd83df0"
   end
 
   create_table "calls", force: :cascade do |t|
@@ -1920,6 +1939,7 @@ ActiveRecord::Schema[7.1].define(version: 2026_11_25_182352) do
   add_foreign_key "automato_agents_team_inboxes", "inboxes", on_delete: :cascade
   add_foreign_key "automato_agents_teams", "accounts", on_delete: :cascade
   add_foreign_key "automato_agents_teams", "agent_bots", on_delete: :nullify
+  add_foreign_key "automato_agents_usage_entries", "accounts", on_delete: :cascade
   add_foreign_key "campaign_recipients", "accounts", on_delete: :cascade
   add_foreign_key "campaign_recipients", "campaigns", on_delete: :cascade
   add_foreign_key "campaign_recipients", "contacts", on_delete: :cascade
