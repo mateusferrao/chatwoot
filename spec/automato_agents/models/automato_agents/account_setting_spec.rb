@@ -136,5 +136,63 @@ RSpec.describe AutomatoAgents::AccountSetting do
 
       expect(AgentBotInbox.find_by(inbox_id: inbox.id)).to be_inactive
     end
+
+    it 'is not enabled while an enabled team cannot serve one of its inboxes' do
+      create(:agent_bot_inbox, inbox: inbox, agent_bot: create(:agent_bot, account: account), account: account)
+      setting = build(:automato_agents_account_setting, account: account, enabled: true)
+
+      expect(setting.save).to be(false)
+
+      expect(setting.errors[:base]).to include("#{team.name}: The inbox '#{inbox.name}' is already linked to another bot. " \
+                                               'Remove that link before adding the inbox to an agent team.')
+      expect(AutomatoAgents.enabled_for?(account)).to be(false)
+    end
+
+    it 'is not enabled while Dialogflow answers an inbox of an enabled team' do
+      create(:integrations_hook, :dialogflow, account: account, inbox: inbox)
+      setting = build(:automato_agents_account_setting, account: account, enabled: true)
+
+      expect(setting.save).to be(false)
+
+      expect(setting.errors[:base]).to include("#{team.name}: #{inbox.name}: Disconnect Dialogflow before connecting Agent Bot")
+      expect(AutomatoAgents.enabled_for?(account)).to be(false)
+    end
+
+    it 'ignores the conflicts of disabled teams' do
+      team.update!(enabled: false)
+      create(:agent_bot_inbox, inbox: inbox, agent_bot: create(:agent_bot, account: account), account: account)
+
+      expect(build(:automato_agents_account_setting, account: account, enabled: true)).to be_valid
+    end
+
+    it 'deactivates every team when disabled, even the one that fails, and raises that failure' do
+      other_team = create(:automato_agents_team, account: account, enabled: true)
+      other_inbox = create(:inbox, account: account)
+      create(:automato_agents_team_inbox, team: other_team, inbox: other_inbox)
+      setting = create(:automato_agents_account_setting, account: account, enabled: true)
+      expect([inbox, other_inbox].map { |item| item.reload.agent_bot_inbox }).to all(be_active)
+
+      allow(AutomatoAgents::Teams::ProvisionService).to receive(:new).and_wrap_original do |original, provisioned_team|
+        raise ActiveRecord::RecordInvalid, provisioned_team if provisioned_team.id == team.id
+
+        original.call(provisioned_team)
+      end
+
+      expect { setting.update!(enabled: false) }.to raise_error(ActiveRecord::RecordInvalid)
+
+      expect(other_inbox.reload.agent_bot_inbox).to be_inactive
+      expect(inbox.reload.agent_bot_inbox).to be_inactive
+      expect(setting.reload.enabled).to be(false)
+    end
+  end
+
+  describe 'required texts and models' do
+    it 'requires the models and the customer messages' do
+      setting = build(:automato_agents_account_setting, account: account, default_model: '', cheaper_model: ' ',
+                                                        fallback_message: nil, budget_exceeded_message: '')
+
+      expect(setting).not_to be_valid
+      expect(setting.errors.attribute_names).to include(:default_model, :cheaper_model, :fallback_message, :budget_exceeded_message)
+    end
   end
 end

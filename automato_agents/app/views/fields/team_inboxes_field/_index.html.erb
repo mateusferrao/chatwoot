@@ -1,0 +1,5 @@
+<% if field.names.any? %>
+  <%= field.names.join(", ") %>
+<% else %>
+  <span class="text-n-slate-11"><%= t("automato_agents.super_admin.team_inboxes.none") %></span>
+<% end %>

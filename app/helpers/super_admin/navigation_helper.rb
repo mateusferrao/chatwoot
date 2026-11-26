@@ -4,7 +4,9 @@ module SuperAdmin::NavigationHelper
     'users' => 'i-lucide-users',
     'agent_bots' => 'i-lucide-bot',
     'platform_apps' => 'i-lucide-blocks',
-    'platform_banners' => 'i-lucide-megaphone'
+    'platform_banners' => 'i-lucide-megaphone',
+    'automato_agents/account_settings' => 'i-lucide-brain-circuit',
+    'automato_agents/teams' => 'i-lucide-sparkles'
   }.freeze
 
   # Routed resources that are reached from other pages instead of the navigation.

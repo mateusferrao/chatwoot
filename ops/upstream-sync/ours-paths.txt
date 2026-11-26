@@ -4,3 +4,9 @@
 .github/CODEOWNERS
 # Carrega automato_agents/ (camada de agentes) via eager_load_paths, como o enterprise/
 config/application.rb
+# Super Admin das equipes de agentes: namespace automato_agents (contas e equipes) no bloco super_admin
+config/routes.rb
+# Ícones de navegação das telas de agentes (automato_agents/account_settings e automato_agents/teams)
+app/helpers/super_admin/navigation_helper.rb
+# Atalho "criar" da barra de comandos aceita recurso com namespace (automato_agents/teams); sem isso toda página do Super Admin dá 500
+app/helpers/super_admin/command_bar_helper.rb
